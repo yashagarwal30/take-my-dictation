@@ -47,29 +47,38 @@ class SummaryService:
             # Build prompt with language awareness and comprehensive summarization
             system_prompt = """You are an expert at analyzing audio transcriptions and creating comprehensive, actionable summaries.
 
-IMPORTANT INSTRUCTIONS:
-1. First, assess the quality of the transcription. If the text appears garbled, nonsensical, or poorly transcribed, mention this in your summary.
-2. Only include information that is actually present in the transcript. Do NOT hallucinate or make up content.
-3. If the transcript is in a non-English language, provide the summary in that same language.
-4. Create a COMPREHENSIVE summary that captures ALL important information - do not limit yourself to 2-3 sentences. Include as much detail as needed to preserve all key information.
-5. Extract ALL key points mentioned in the transcript - not just 3-5. Every important point should be captured.
-6. Identify ALL action items or tasks mentioned throughout the transcript.
-7. Categorize the content (e.g., meeting_notes, lecture, personal_memo, interview, brainstorming, discussion, planning)
+CRITICAL RULES:
+1. ONLY use information present in the transcript - do NOT hallucinate or make up details
+2. If the transcript has errors, is garbled, or unclear, explicitly state this in your summary
+3. If the transcript is in a non-English language, provide the summary in English but preserve key terms
+4. Always complete your response - NEVER stop mid-sentence or mid-paragraph
+5. Be thorough and comprehensive - capture ALL important information
+
+QUALITY ASSESSMENT:
+- First, assess the transcription quality
+- If the text is mostly gibberish or nonsensical, acknowledge this clearly
+- If parts are unclear, mark them as [unclear in transcript]
+
+COMPREHENSIVE OUTPUT:
+- Summary: Include as much detail as needed (multiple paragraphs if necessary)
+- Key Points: Extract ALL significant points (not just 3-5, but everything important)
+- Action Items: Identify ALL tasks/actions mentioned
+- Category: Classify the content type
 
 Return your response as JSON with this structure:
 {
-  "summary": "Comprehensive summary covering all major topics and details discussed. Include multiple paragraphs if needed to capture everything important.",
-  "key_points": ["point 1", "point 2", "point 3", "... as many points as needed"],
-  "action_items": ["action 1", "action 2", "... all action items mentioned"],
-  "category": "meeting_notes"
+  "summary": "Comprehensive, detailed summary. Include multiple paragraphs if needed to cover all information. ALWAYS complete your thoughts - never stop mid-sentence.",
+  "key_points": ["All significant points from the transcript - as many as needed"],
+  "action_items": ["All action items and tasks mentioned"],
+  "category": "meeting_notes|lecture|interview|discussion|planning|memo|brainstorming|other"
 }
 
-QUALITY NOTE: If the transcript is unclear or poorly transcribed, indicate this clearly:
+EXAMPLE - If transcript quality is poor:
 {
-  "summary": "The transcription quality appears to be poor and the content is unclear. The text contains [describe issues]. A re-recording or better audio quality may be needed.",
-  "key_points": ["Transcription quality issue detected"],
-  "action_items": ["Consider re-recording with better audio quality"],
-  "category": "unknown"
+  "summary": "⚠️ WARNING: The transcription quality is very poor. The audio appears to contain [describe language/content] but most of the text is garbled or nonsensical. Key recognizable terms: [list any clear words/phrases]. Recommendation: Re-record with better audio quality in a quiet environment, or use a higher quality microphone.",
+  "key_points": ["Transcription quality is poor", "Content is mostly unclear", "Re-recording recommended"],
+  "action_items": ["Re-record with better audio quality", "Use quiet environment", "Consider better microphone"],
+  "category": "poor_quality"
 }"""
 
             user_prompt = f"Transcription:\n\n{transcription_text}"
@@ -103,9 +112,10 @@ QUALITY NOTE: If the transcript is unclear or poorly transcribed, indicate this 
 
                 result = json.loads(json_str)
             except json.JSONDecodeError:
-                # Fallback if JSON parsing fails
+                # Fallback if JSON parsing fails - DO NOT TRUNCATE
+                print(f"⚠️  Warning: Failed to parse JSON response, using full text as summary")
                 result = {
-                    "summary": response_text[:500],
+                    "summary": response_text,  # Full text, not truncated
                     "key_points": [],
                     "action_items": [],
                     "category": "unknown"
@@ -155,20 +165,21 @@ QUALITY NOTE: If the transcript is unclear or poorly transcribed, indicate this 
         """
         try:
             # Generate new summary using same method
-            system_prompt = """You are an expert at analyzing audio transcriptions and creating concise, actionable summaries.
+            system_prompt = """You are an expert at analyzing audio transcriptions and creating comprehensive, actionable summaries.
 
-Your task is to:
-1. Provide a brief summary (2-3 sentences)
-2. Extract 3-5 key points
-3. Identify any action items or tasks mentioned
-4. Categorize the content (e.g., meeting_notes, lecture, personal_memo, interview, brainstorming)
+CRITICAL RULES:
+1. ONLY use information present in the transcript - do NOT hallucinate or make up details
+2. If the transcript has errors, is garbled, or unclear, explicitly state this
+3. If the transcript is in a non-English language, provide the summary in English but preserve key terms
+4. Always complete your response - NEVER stop mid-sentence or mid-paragraph
+5. Be thorough and comprehensive - capture ALL important information
 
 Return your response as JSON with this structure:
 {
-  "summary": "Brief 2-3 sentence summary",
-  "key_points": ["point 1", "point 2", "point 3"],
-  "action_items": ["action 1", "action 2"],
-  "category": "meeting_notes"
+  "summary": "Comprehensive, detailed summary. Include multiple paragraphs if needed. ALWAYS complete your thoughts.",
+  "key_points": ["All significant points from the transcript - as many as needed"],
+  "action_items": ["All action items and tasks mentioned"],
+  "category": "meeting_notes|lecture|interview|discussion|planning|memo|brainstorming|other"
 }"""
 
             user_prompt = f"Transcription:\n\n{transcription_text}"
@@ -200,8 +211,10 @@ Return your response as JSON with this structure:
 
                 result = json.loads(json_str)
             except json.JSONDecodeError:
+                # Fallback if JSON parsing fails - DO NOT TRUNCATE
+                print(f"⚠️  Warning: Failed to parse JSON response in regenerate, using full text")
                 result = {
-                    "summary": response_text[:500],
+                    "summary": response_text,  # Full text, not truncated
                     "key_points": [],
                     "action_items": [],
                     "category": "unknown"
