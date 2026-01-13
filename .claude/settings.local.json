@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(brew install:*)",
+      "Bash(export PATH=\"/opt/homebrew/opt/postgresql@17/bin:$PATH\")",
+      "Bash(export LDFLAGS=\"-L/opt/homebrew/opt/postgresql@17/lib\":*)",
+      "Bash(export CPPFLAGS=\"-I/opt/homebrew/opt/postgresql@17/include\":*)",
+      "Bash(./setup.sh)"
+    ]
+  }
+}
