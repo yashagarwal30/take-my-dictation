@@ -52,10 +52,26 @@ async def generate_summary(
     existing = result.scalar_one_or_none()
 
     if existing:
-        raise HTTPException(
-            status_code=400,
-            detail="Summary already exists for this recording. Use regenerate endpoint to create a new one."
-        )
+        # If custom prompt is provided or explicitly requested, regenerate
+        if request.custom_prompt:
+            try:
+                summary_service = SummaryService()
+                updated_summary = await summary_service.regenerate_summary(
+                    existing,
+                    transcription.text,
+                    db,
+                    custom_prompt=request.custom_prompt
+                )
+                await db.refresh(updated_summary)
+                return updated_summary
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Summary regeneration failed: {str(e)}"
+                )
+        else:
+            # Return existing summary without error
+            return existing
 
     try:
         # Generate summary using service

@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE: int = 104857600  # 100MB
 
     # Audio Processing
-    ALLOWED_AUDIO_FORMATS: str = "mp3,wav,m4a,ogg,flac"
+    ALLOWED_AUDIO_FORMATS: str = "mp3,wav,m4a,ogg,flac,webm"
 
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]

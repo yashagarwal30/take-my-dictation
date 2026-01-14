@@ -58,6 +58,18 @@ class TranscriptionService:
         Raises:
             Exception: If transcription fails at any stage
         """
+        from sqlalchemy import select
+
+        # Check if transcription already exists for this recording
+        result = await db.execute(
+            select(Transcription).filter(Transcription.recording_id == recording_id)
+        )
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            print(f"ℹ️  Transcription already exists for recording {recording_id}, returning existing")
+            return existing
+
         # If production service is enabled, use it instead
         if self.use_production_service:
             return await self.transcribe_audio_production(audio_file_path, recording_id, db)
@@ -152,10 +164,26 @@ class TranscriptionService:
             )
 
             db.add(transcription)
-            await db.commit()
-            await db.refresh(transcription)
 
-            return transcription
+            try:
+                await db.commit()
+                await db.refresh(transcription)
+                return transcription
+            except Exception as db_error:
+                # Handle duplicate key error gracefully
+                if "duplicate key" in str(db_error).lower() or "unique constraint" in str(db_error).lower():
+                    print(f"⚠️  Duplicate detected during commit, fetching existing transcription")
+                    await db.rollback()
+                    # Fetch and return the existing transcription
+                    result_check = await db.execute(
+                        select(Transcription).filter(Transcription.recording_id == recording_id)
+                    )
+                    existing = result_check.scalar_one_or_none()
+                    if existing:
+                        print(f"✅ Returning existing transcription")
+                        return existing
+                # Re-raise if it's a different error
+                raise
 
         except Exception as e:
             print(f"❌ Transcription error: {str(e)}")
@@ -193,7 +221,19 @@ class TranscriptionService:
         Raises:
             Exception: If transcription fails at any stage
         """
+        from sqlalchemy import select
+
         try:
+            # Check if transcription already exists for this recording
+            result = await db.execute(
+                select(Transcription).filter(Transcription.recording_id == recording_id)
+            )
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                print(f"ℹ️  Transcription already exists for recording {recording_id}, returning existing")
+                return existing
+
             print(f"\n{'='*60}")
             print(f"PRODUCTION TRANSCRIPTION SERVICE")
             print(f"{'='*60}")
@@ -231,13 +271,28 @@ class TranscriptionService:
             )
 
             db.add(transcription)
-            await db.commit()
-            await db.refresh(transcription)
 
-            print(f"\n✅ Transcription saved to database")
-            print(f"{'='*60}\n")
-
-            return transcription
+            try:
+                await db.commit()
+                await db.refresh(transcription)
+                print(f"\n✅ Transcription saved to database")
+                print(f"{'='*60}\n")
+                return transcription
+            except Exception as db_error:
+                # Handle duplicate key error gracefully
+                if "duplicate key" in str(db_error).lower() or "unique constraint" in str(db_error).lower():
+                    print(f"⚠️  Duplicate detected during commit, fetching existing transcription")
+                    await db.rollback()
+                    # Fetch and return the existing transcription
+                    result_check = await db.execute(
+                        select(Transcription).filter(Transcription.recording_id == recording_id)
+                    )
+                    existing = result_check.scalar_one_or_none()
+                    if existing:
+                        print(f"✅ Returning existing transcription")
+                        return existing
+                # Re-raise if it's a different error
+                raise
 
         except Exception as e:
             print(f"❌ Production transcription error: {str(e)}")

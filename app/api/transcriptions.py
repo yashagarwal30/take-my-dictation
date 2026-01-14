@@ -51,10 +51,11 @@ async def create_transcription(
     existing = result.scalar_one_or_none()
 
     if existing:
-        raise HTTPException(
-            status_code=400,
-            detail="Transcription already exists for this recording"
-        )
+        # If transcription exists, update recording status and return existing transcription
+        if recording.status != RecordingStatus.COMPLETED:
+            recording.status = RecordingStatus.COMPLETED
+            await db.commit()
+        return existing
 
     # Update recording status
     recording.status = RecordingStatus.PROCESSING
@@ -77,9 +78,13 @@ async def create_transcription(
         return transcription
 
     except Exception as e:
+        # Rollback the session to clear any pending transaction state
+        await db.rollback()
+
         # Update recording status to failed
         recording.status = RecordingStatus.FAILED
         await db.commit()
+
         raise HTTPException(
             status_code=500,
             detail=f"Transcription failed: {str(e)}"
