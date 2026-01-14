@@ -20,6 +20,19 @@ api.interceptors.request.use((config) => {
 
 // API endpoints
 export const apiService = {
+  // Auth endpoints
+  register: (userData) => api.post('/auth/register', userData),
+  login: (credentials) => api.post('/auth/login', credentials),
+  getCurrentUser: () => api.get('/auth/me'),
+  sendVerificationCode: (email) => api.post('/auth/send-verification', { email }),
+  verifyEmail: (email, code) => api.post('/auth/verify-email', { email, code }),
+  resendVerificationCode: (email) => api.post('/auth/resend-verification', { email }),
+
+  // Trial endpoints
+  startTrial: (email) => api.post('/trials/start', { email }),
+  getTrialUsage: () => api.get('/trials/usage'),
+  convertTrial: (password) => api.post('/auth/convert-trial', { password }),
+
   // Recording endpoints
   uploadAudio: (formData) => api.post('/recordings/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -46,10 +59,33 @@ export const apiService = {
     const url = `/summaries/${summaryId}/regenerate${customPrompt ? `?custom_prompt=${encodeURIComponent(customPrompt)}` : ''}`;
     return api.put(url);
   },
+  exportWord: (recordingId) => api.get(`/summaries/${recordingId}/export/word`, {
+    responseType: 'blob',
+  }),
+  exportPdf: (recordingId) => api.get(`/summaries/${recordingId}/export/pdf`, {
+    responseType: 'blob',
+  }),
 
   // Admin endpoints
   healthCheck: () => api.get('/admin/health'),
   getStats: () => api.get('/admin/stats'),
+
+  // Payment endpoints
+  getPricingPlans: () => api.get('/payments/plans'),
+  createCheckoutSession: (plan, interval = 'monthly') => api.post('/payments/create-checkout-session', null, {
+    params: { plan, interval }
+  }),
+  cancelSubscription: () => api.post('/payments/cancel-subscription'),
+  changePlan: (newPlan) => api.post('/payments/change-plan', { new_plan: newPlan }),
+
+  // User usage endpoints
+  getUserUsage: () => api.get('/users/usage'),
+  checkUsageStatus: () => api.get('/users/usage/check'),
+
+  // Audio retention endpoints
+  enableAudioRetention: (recordingId) => api.post(`/recordings/${recordingId}/retain`),
+  deleteAudio: (recordingId) => api.delete(`/recordings/${recordingId}/audio`),
+  getRetentionStatus: (recordingId) => api.get(`/recordings/${recordingId}/retention`),
 };
 
 export default api;

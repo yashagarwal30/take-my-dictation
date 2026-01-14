@@ -42,12 +42,20 @@ const Navbar = () => {
                 </button>
               </>
             ) : (
-              <Link
-                to="/"
-                className="bg-primary hover:bg-primary-dark text-white font-semibold py-2 px-4 rounded-lg transition duration-200"
-              >
-                Get Started
-              </Link>
+              <>
+                <Link
+                  to="/login"
+                  className="text-gray-700 hover:text-primary font-semibold transition"
+                >
+                  Login
+                </Link>
+                <Link
+                  to="/signup"
+                  className="bg-primary hover:bg-primary-dark text-white font-semibold py-2 px-4 rounded-lg transition duration-200"
+                >
+                  Sign Up
+                </Link>
+              </>
             )}
           </div>
         </div>

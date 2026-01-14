@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { apiService } from '../utils/api';
-import { FaFileWord, FaFilePdf, FaFileAlt, FaListUl, FaClipboardList, FaBolt } from 'react-icons/fa';
+import { FaFileWord, FaFilePdf, FaFileAlt, FaListUl, FaClipboardList, FaBolt, FaCrown } from 'react-icons/fa';
 
 const SummaryPage = () => {
   const navigate = useNavigate();
@@ -15,6 +15,13 @@ const SummaryPage = () => {
   const [loading, setLoading] = useState(true);
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [error, setError] = useState(null);
+  const [isTrial, setIsTrial] = useState(false);
+
+  useEffect(() => {
+    // Check if user is in trial mode
+    const trialMode = localStorage.getItem('isTrial') === 'true';
+    setIsTrial(trialMode);
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
@@ -85,17 +92,49 @@ const SummaryPage = () => {
     }
   };
 
-  const handleDownload = () => {
-    // This would need backend support for Word/PDF export
-    // For now, we'll download as text
-    const element = document.createElement('a');
-    const content = `TRANSCRIPTION:\n\n${transcription}\n\n\nSUMMARY:\n\n${summary}`;
-    const file = new Blob([content], { type: 'text/plain' });
-    element.href = URL.createObjectURL(file);
-    element.download = `summary_${recordingId}.txt`;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+  const handleDownload = async (format) => {
+    try {
+      let response;
+      let filename;
+      let mimeType;
+
+      if (format === 'word') {
+        response = await apiService.exportWord(recordingId);
+        filename = `transcript_${recordingId}.docx`;
+        mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      } else if (format === 'pdf') {
+        response = await apiService.exportPdf(recordingId);
+        filename = `transcript_${recordingId}.pdf`;
+        mimeType = 'application/pdf';
+      } else {
+        // Text format (fallback)
+        const content = `TRANSCRIPTION:\n\n${transcription}\n\n\nSUMMARY:\n\n${summary}`;
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const element = document.createElement('a');
+        element.href = url;
+        element.download = `transcript_${recordingId}.txt`;
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      // Create blob and download
+      const blob = new Blob([response.data], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const element = document.createElement('a');
+      element.href = url;
+      element.download = filename;
+      document.body.appendChild(element);
+      element.click();
+      document.body.removeChild(element);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download error:', err);
+      setError('Failed to download file. Please try again.');
+    }
   };
 
   if (loading) {
@@ -119,6 +158,50 @@ const SummaryPage = () => {
 
       <main className="flex-1 bg-gray-50 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Trial Upgrade CTA */}
+          {isTrial && (
+            <div className="mb-6 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg shadow-xl p-8 text-white">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center space-x-3 mb-3">
+                    <FaCrown className="text-4xl text-yellow-300" />
+                    <h2 className="text-3xl font-bold">Upgrade to Save Your Summaries</h2>
+                  </div>
+                  <p className="text-lg text-purple-100 mb-4">
+                    Subscribe to save summaries to your dashboard and get unlimited recording time
+                  </p>
+                  <ul className="space-y-2 text-purple-100">
+                    <li className="flex items-center">
+                      <span className="mr-2">✓</span>
+                      <span>Save unlimited summaries to dashboard</span>
+                    </li>
+                    <li className="flex items-center">
+                      <span className="mr-2">✓</span>
+                      <span>10 hours/month recording time (Basic) or 50 hours/month (Pro)</span>
+                    </li>
+                    <li className="flex items-center">
+                      <span className="mr-2">✓</span>
+                      <span>Multiple summary formats</span>
+                    </li>
+                    <li className="flex items-center">
+                      <span className="mr-2">✓</span>
+                      <span>Export to Word and PDF</span>
+                    </li>
+                  </ul>
+                </div>
+                <div className="ml-8">
+                  <button
+                    onClick={() => navigate('/subscribe')}
+                    className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-bold py-4 px-8 rounded-lg text-xl transition duration-200 shadow-lg transform hover:scale-105"
+                  >
+                    View Plans
+                  </button>
+                  <p className="text-center text-sm text-purple-200 mt-2">Starting at $9.99/month</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
               {error}

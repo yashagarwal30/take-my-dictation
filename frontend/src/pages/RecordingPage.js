@@ -1,14 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import AudioRecorder from '../components/AudioRecorder';
 import { apiService } from '../utils/api';
+import { FaClock } from 'react-icons/fa';
 
 const RecordingPage = () => {
   const navigate = useNavigate();
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState(null);
+  const [trialUsage, setTrialUsage] = useState(null);
+  const [isTrial, setIsTrial] = useState(false);
+
+  useEffect(() => {
+    // Check if user is in trial mode
+    const trialMode = localStorage.getItem('isTrial') === 'true';
+    setIsTrial(trialMode);
+
+    // Fetch trial usage if in trial mode
+    if (trialMode) {
+      fetchTrialUsage();
+    }
+  }, []);
+
+  const fetchTrialUsage = async () => {
+    try {
+      const response = await apiService.getTrialUsage();
+      setTrialUsage(response.data);
+    } catch (err) {
+      console.error('Error fetching trial usage:', err);
+    }
+  };
 
   const handleRecordingComplete = async (audioBlob, duration) => {
     setIsUploading(true);
@@ -55,6 +78,36 @@ const RecordingPage = () => {
 
       <main className="flex-1 bg-gray-50 py-12">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Trial Usage Banner */}
+          {isTrial && trialUsage && (
+            <div className="mb-6 bg-gradient-to-r from-yellow-400 to-orange-400 rounded-lg shadow-lg p-6 text-white">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <FaClock className="text-3xl" />
+                  <div>
+                    <h3 className="text-xl font-bold">Free Trial</h3>
+                    <p className="text-sm">
+                      {trialUsage.trial_minutes_remaining > 0
+                        ? `${trialUsage.trial_minutes_remaining.toFixed(1)} minutes remaining`
+                        : 'Trial time expired'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => navigate('/subscribe')}
+                  className="bg-white text-orange-600 hover:bg-gray-100 font-bold py-2 px-6 rounded-lg transition duration-200"
+                >
+                  Upgrade Now
+                </button>
+              </div>
+              {trialUsage.trial_minutes_remaining <= 2 && trialUsage.trial_minutes_remaining > 0 && (
+                <p className="mt-3 text-sm">
+                  You're almost out of trial time! Subscribe to get unlimited recording.
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="bg-white rounded-lg shadow-lg p-8">
             <h1 className="text-4xl font-bold text-center mb-4 text-gray-800">
               Record Your Audio

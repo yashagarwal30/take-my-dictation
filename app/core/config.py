@@ -24,6 +24,19 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str
     ANTHROPIC_API_KEY: str
 
+    # Security
+    SECRET_KEY: str = "your-secret-key-change-this-in-production"  # Change in .env for production
+
+    # Stripe
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_PUBLISHABLE_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+
+    # Email Service (SendGrid)
+    SENDGRID_API_KEY: str = ""
+    EMAIL_FROM_ADDRESS: str = "noreply@takemydictation.ai"
+    EMAIL_FROM_NAME: str = "Take My Dictation"
+
     # File Storage
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE: int = 104857600  # 100MB

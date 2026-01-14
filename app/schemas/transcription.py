@@ -27,6 +27,8 @@ class TranscriptionResponse(BaseModel):
     provider: str
     created_at: datetime
     updated_at: datetime
+    usage_warning: Optional[str] = None
+    usage_info: Optional[dict] = None
 
     class Config:
         from_attributes = True

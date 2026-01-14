@@ -1,11 +1,42 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { FaMicrophone, FaFileAlt, FaRocket, FaClock } from 'react-icons/fa';
+import { apiService } from '../utils/api';
 
 const LandingPage = () => {
   const navigate = useNavigate();
+  const [trialEmail, setTrialEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleStartTrial = async (e) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!trialEmail) {
+      setError('Please enter your email address');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await apiService.startTrial(trialEmail);
+
+      // Store trial token
+      localStorage.setItem('authToken', response.data.access_token);
+      localStorage.setItem('isTrial', 'true');
+
+      // Navigate to recording page
+      navigate('/record');
+    } catch (err) {
+      console.error('Trial start error:', err);
+      setError(err.response?.data?.detail || 'Failed to start trial. Please try again.');
+      setLoading(false);
+    }
+  };
 
   const handleGetStarted = () => {
     navigate('/record');
@@ -24,15 +55,52 @@ const LandingPage = () => {
           <p className="text-xl md:text-2xl mb-8 text-gray-100">
             Record, transcribe, and get AI-powered summaries in seconds
           </p>
-          <button
-            onClick={handleGetStarted}
-            className="bg-white text-primary hover:bg-gray-100 font-bold py-4 px-8 rounded-lg text-xl transition duration-200 shadow-lg"
-          >
-            Start Recording Now
-          </button>
-          <p className="mt-4 text-gray-200">
-            No sign-up required. Start for free.
-          </p>
+
+          {/* Trial Email Form */}
+          <div className="max-w-2xl mx-auto mb-8">
+            <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 border border-white/20">
+              <h2 className="text-2xl font-bold mb-2">Try Free - No Signup Required</h2>
+              <p className="text-lg text-gray-100 mb-6">Get 10 minutes free instantly</p>
+
+              <form onSubmit={handleStartTrial} className="flex flex-col sm:flex-row gap-4">
+                <input
+                  type="email"
+                  value={trialEmail}
+                  onChange={(e) => setTrialEmail(e.target.value)}
+                  placeholder="Enter your email address"
+                  required
+                  className="flex-1 px-6 py-4 rounded-lg text-gray-900 text-lg focus:outline-none focus:ring-4 focus:ring-white/30"
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="bg-accent hover:bg-green-600 text-white font-bold py-4 px-8 rounded-lg text-lg transition duration-200 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? 'Starting...' : 'Start Free Trial'}
+                </button>
+              </form>
+
+              {error && (
+                <div className="mt-4 bg-red-500/90 text-white px-4 py-3 rounded-lg">
+                  {error}
+                </div>
+              )}
+
+              <p className="mt-4 text-sm text-gray-200">
+                No credit card required • 10 minutes free • Instant access
+              </p>
+            </div>
+          </div>
+
+          <div className="text-gray-200">
+            <p className="mb-2">Already have an account?</p>
+            <button
+              onClick={handleGetStarted}
+              className="text-white hover:underline font-semibold"
+            >
+              Go to Recording
+            </button>
+          </div>
         </div>
       </section>
 

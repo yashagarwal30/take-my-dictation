@@ -59,3 +59,21 @@ async def init_db():
 async def close_db():
     """Close database connections."""
     await engine.dispose()
+
+
+async def get_async_session():
+    """
+    Get an async database session for background jobs.
+
+    Yields:
+        AsyncSession: Database session
+    """
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()

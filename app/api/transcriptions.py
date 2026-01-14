@@ -11,6 +11,7 @@ from app.models.recording import Recording, RecordingStatus
 from app.models.transcription import Transcription
 from app.schemas.transcription import TranscriptionCreate, TranscriptionResponse, TranscriptionUpdate
 from app.services.transcription_service import TranscriptionService
+from app.services.usage_tracking_service import UsageTrackingService
 
 router = APIRouter()
 
@@ -75,7 +76,57 @@ async def create_transcription(
         await db.commit()
         await db.refresh(transcription)
 
-        return transcription
+        # Track usage for non-trial or paid users
+        usage_warning = None
+        usage_info_dict = None
+
+        if recording.user_id and recording.duration:
+            try:
+                usage_service = UsageTrackingService()
+                usage_result = await usage_service.track_recording_usage(
+                    recording.user_id,
+                    recording.duration,
+                    db
+                )
+                print(f"✅ Usage tracked: {usage_result}")
+
+                # Get usage warnings
+                usage_check = await usage_service.check_usage_limit(recording.user_id, db)
+                usage_warning = await usage_service.get_usage_warning_message(usage_check)
+
+                # Build usage info
+                if usage_check["user_type"] == "trial":
+                    usage_info_dict = {
+                        "trial_minutes_used": usage_check["trial_minutes_used"],
+                        "trial_minutes_remaining": usage_check["trial_minutes_remaining"]
+                    }
+                else:
+                    usage_info_dict = {
+                        "monthly_hours_used": usage_check["monthly_hours_used"],
+                        "monthly_hours_limit": usage_check["monthly_hours_limit"],
+                        "monthly_hours_remaining": usage_check["monthly_hours_remaining"],
+                        "usage_percentage": usage_check["usage_percentage"]
+                    }
+
+            except Exception as usage_error:
+                # Don't fail transcription if usage tracking fails
+                print(f"⚠️  Usage tracking failed: {usage_error}")
+
+        # Prepare response with usage information
+        response_data = {
+            "id": transcription.id,
+            "recording_id": transcription.recording_id,
+            "text": transcription.text,
+            "language": transcription.language,
+            "confidence": transcription.confidence,
+            "provider": transcription.provider,
+            "created_at": transcription.created_at,
+            "updated_at": transcription.updated_at,
+            "usage_warning": usage_warning,
+            "usage_info": usage_info_dict
+        }
+
+        return response_data
 
     except Exception as e:
         # Rollback the session to clear any pending transaction state

@@ -8,7 +8,7 @@ import json
 from typing import Optional
 
 from app.core.config import settings
-from app.models.summary import Summary
+from app.models.summary import Summary, SummaryFormat
 
 
 class SummaryService:
@@ -19,12 +19,126 @@ class SummaryService:
         self.client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
         self.model = "claude-3-haiku-20240307"
 
+    def _get_format_specific_prompt(self, format: SummaryFormat) -> str:
+        """
+        Get format-specific system prompt for summary generation.
+
+        Args:
+            format: The desired summary format
+
+        Returns:
+            Format-specific system prompt
+        """
+        base_rules = """CRITICAL RULES:
+1. ONLY use information present in the transcript - do NOT hallucinate or make up details
+2. If the transcript has errors, is garbled, or unclear, explicitly state this in your summary
+3. If the transcript is in a non-English language, provide the summary in English but preserve key terms
+4. Always complete your response - NEVER stop mid-sentence or mid-paragraph
+5. Be thorough and comprehensive - capture ALL important information"""
+
+        if format == SummaryFormat.MEETING_NOTES:
+            return f"""You are an expert at analyzing meeting transcripts and creating comprehensive meeting notes.
+
+{base_rules}
+
+FORMAT REQUIREMENTS - MEETING NOTES:
+Structure your response with the following sections:
+1. **Meeting Overview**: Brief description of the meeting purpose and context
+2. **Attendees/Participants**: Who was present (if mentioned or identifiable)
+3. **Discussion Points**: Detailed breakdown of topics discussed, organized by topic
+4. **Key Decisions**: Important decisions made during the meeting
+5. **Action Items**: Tasks assigned with owners (if mentioned) and deadlines
+6. **Next Steps**: What happens next, follow-up meetings, etc.
+
+Return your response as JSON with this structure:
+{{
+  "summary": "Comprehensive meeting notes following the format above. Use clear section headings and bullet points where appropriate.",
+  "key_points": ["All significant discussion points and decisions"],
+  "action_items": ["Task description - Owner (if mentioned) - Deadline (if mentioned)"],
+  "category": "meeting_notes"
+}}"""
+
+        elif format == SummaryFormat.PRODUCT_SPEC:
+            return f"""You are an expert at analyzing product discussions and creating structured product specifications.
+
+{base_rules}
+
+FORMAT REQUIREMENTS - PRODUCT SPECIFICATION:
+Structure your response with the following sections:
+1. **Problem Statement**: What problem is being solved? What pain points exist?
+2. **Proposed Solution**: High-level description of the solution
+3. **User Stories**: Who will use this? What are their goals? (Format: "As a [user], I want [goal] so that [benefit]")
+4. **Requirements**:
+   - Functional Requirements: What the product must do
+   - Non-Functional Requirements: Performance, security, scalability, etc.
+5. **Success Metrics**: How will success be measured?
+6. **Open Questions**: What needs further clarification or research?
+
+Return your response as JSON with this structure:
+{{
+  "summary": "Comprehensive product specification following the format above. Be specific and actionable.",
+  "key_points": ["Critical requirements and constraints"],
+  "action_items": ["Tasks needed to move forward with this product"],
+  "category": "product_spec"
+}}"""
+
+        elif format == SummaryFormat.MOM:
+            return f"""You are an expert at creating formal Minutes of Meeting (MOM) documents.
+
+{base_rules}
+
+FORMAT REQUIREMENTS - MINUTES OF MEETING (MOM):
+Create a formal, professional MOM with:
+1. **Meeting Details**: Date, time, location/platform, duration
+2. **Attendees**: List of participants with roles/titles (if mentioned)
+3. **Agenda Items**: Numbered list of topics discussed
+4. **Discussion Summary**: For each agenda item, provide:
+   - Key points raised
+   - Opinions/concerns expressed
+   - Decisions made
+5. **Resolutions**: Formal decisions and approvals
+6. **Action Items**: Tasks with assignees and deadlines (table format if possible)
+7. **Next Meeting**: Date/time of next meeting (if mentioned)
+
+Use formal, professional language appropriate for official records.
+
+Return your response as JSON with this structure:
+{{
+  "summary": "Formal minutes of meeting following the format above. Use professional tone and clear structure.",
+  "key_points": ["Key decisions and resolutions"],
+  "action_items": ["Action item with assignee and deadline"],
+  "category": "mom"
+}}"""
+
+        else:  # QUICK_SUMMARY (default)
+            return f"""You are an expert at creating concise, high-impact summaries of transcriptions.
+
+{base_rules}
+
+FORMAT REQUIREMENTS - QUICK SUMMARY:
+Create a brief, focused summary that:
+1. Captures the essence in 2-4 paragraphs maximum
+2. Highlights only the most important points
+3. Identifies critical action items
+4. Provides context for what was discussed
+
+Focus on clarity and brevity while ensuring no critical information is lost.
+
+Return your response as JSON with this structure:
+{{
+  "summary": "Concise overview that gets straight to the point. 2-4 paragraphs maximum.",
+  "key_points": ["Top 5-7 most important points only"],
+  "action_items": ["Critical action items only"],
+  "category": "quick_summary"
+}}"""
+
     async def generate_summary(
         self,
         transcription_text: str,
         recording_id: str,
         transcription_id: str,
         db: AsyncSession,
+        format: SummaryFormat = SummaryFormat.QUICK_SUMMARY,
         custom_prompt: Optional[str] = None
     ) -> Summary:
         """
@@ -35,6 +149,7 @@ class SummaryService:
             recording_id: Recording ID
             transcription_id: Transcription ID
             db: Database session
+            format: Summary format (MEETING_NOTES, PRODUCT_SPEC, MOM, QUICK_SUMMARY)
             custom_prompt: Optional custom instructions
 
         Returns:
@@ -44,42 +159,8 @@ class SummaryService:
             Exception: If summary generation fails
         """
         try:
-            # Build prompt with language awareness and comprehensive summarization
-            system_prompt = """You are an expert at analyzing audio transcriptions and creating comprehensive, actionable summaries.
-
-CRITICAL RULES:
-1. ONLY use information present in the transcript - do NOT hallucinate or make up details
-2. If the transcript has errors, is garbled, or unclear, explicitly state this in your summary
-3. If the transcript is in a non-English language, provide the summary in English but preserve key terms
-4. Always complete your response - NEVER stop mid-sentence or mid-paragraph
-5. Be thorough and comprehensive - capture ALL important information
-
-QUALITY ASSESSMENT:
-- First, assess the transcription quality
-- If the text is mostly gibberish or nonsensical, acknowledge this clearly
-- If parts are unclear, mark them as [unclear in transcript]
-
-COMPREHENSIVE OUTPUT:
-- Summary: Include as much detail as needed (multiple paragraphs if necessary)
-- Key Points: Extract ALL significant points (not just 3-5, but everything important)
-- Action Items: Identify ALL tasks/actions mentioned
-- Category: Classify the content type
-
-Return your response as JSON with this structure:
-{
-  "summary": "Comprehensive, detailed summary. Include multiple paragraphs if needed to cover all information. ALWAYS complete your thoughts - never stop mid-sentence.",
-  "key_points": ["All significant points from the transcript - as many as needed"],
-  "action_items": ["All action items and tasks mentioned"],
-  "category": "meeting_notes|lecture|interview|discussion|planning|memo|brainstorming|other"
-}
-
-EXAMPLE - If transcript quality is poor:
-{
-  "summary": "⚠️ WARNING: The transcription quality is very poor. The audio appears to contain [describe language/content] but most of the text is garbled or nonsensical. Key recognizable terms: [list any clear words/phrases]. Recommendation: Re-record with better audio quality in a quiet environment, or use a higher quality microphone.",
-  "key_points": ["Transcription quality is poor", "Content is mostly unclear", "Re-recording recommended"],
-  "action_items": ["Re-record with better audio quality", "Use quiet environment", "Consider better microphone"],
-  "category": "poor_quality"
-}"""
+            # Get format-specific system prompt
+            system_prompt = self._get_format_specific_prompt(format)
 
             user_prompt = f"Transcription:\n\n{transcription_text}"
 
@@ -129,6 +210,7 @@ EXAMPLE - If transcript quality is poor:
                 key_points=result.get("key_points", []),
                 action_items=result.get("action_items", []),
                 category=result.get("category"),
+                format=format,
                 model_used=self.model
             )
 
@@ -146,6 +228,7 @@ EXAMPLE - If transcript quality is poor:
         summary: Summary,
         transcription_text: str,
         db: AsyncSession,
+        format: Optional[SummaryFormat] = None,
         custom_prompt: Optional[str] = None
     ) -> Summary:
         """
@@ -155,6 +238,7 @@ EXAMPLE - If transcript quality is poor:
             summary: Existing summary to update
             transcription_text: Transcription text
             db: Database session
+            format: Optional new format (uses existing format if not provided)
             custom_prompt: Optional custom instructions
 
         Returns:
@@ -164,23 +248,11 @@ EXAMPLE - If transcript quality is poor:
             Exception: If regeneration fails
         """
         try:
-            # Generate new summary using same method
-            system_prompt = """You are an expert at analyzing audio transcriptions and creating comprehensive, actionable summaries.
+            # Use provided format or keep existing format
+            summary_format = format if format is not None else summary.format
 
-CRITICAL RULES:
-1. ONLY use information present in the transcript - do NOT hallucinate or make up details
-2. If the transcript has errors, is garbled, or unclear, explicitly state this
-3. If the transcript is in a non-English language, provide the summary in English but preserve key terms
-4. Always complete your response - NEVER stop mid-sentence or mid-paragraph
-5. Be thorough and comprehensive - capture ALL important information
-
-Return your response as JSON with this structure:
-{
-  "summary": "Comprehensive, detailed summary. Include multiple paragraphs if needed. ALWAYS complete your thoughts.",
-  "key_points": ["All significant points from the transcript - as many as needed"],
-  "action_items": ["All action items and tasks mentioned"],
-  "category": "meeting_notes|lecture|interview|discussion|planning|memo|brainstorming|other"
-}"""
+            # Get format-specific system prompt
+            system_prompt = self._get_format_specific_prompt(summary_format)
 
             user_prompt = f"Transcription:\n\n{transcription_text}"
 
@@ -225,6 +297,7 @@ Return your response as JSON with this structure:
             summary.key_points = result.get("key_points", [])
             summary.action_items = result.get("action_items", [])
             summary.category = result.get("category")
+            summary.format = summary_format
             summary.model_used = self.model
 
             await db.commit()

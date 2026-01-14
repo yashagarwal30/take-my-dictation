@@ -4,6 +4,8 @@ import ProtectedRoute from './components/ProtectedRoute';
 
 // Pages
 import LandingPage from './pages/LandingPage';
+import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
 import RecordingPage from './pages/RecordingPage';
 import ProcessingPage from './pages/ProcessingPage';
 import SummaryPage from './pages/SummaryPage';
@@ -18,6 +20,8 @@ function App() {
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
             <Route path="/record" element={<RecordingPage />} />
             <Route path="/processing" element={<ProcessingPage />} />
             <Route path="/summary" element={<SummaryPage />} />

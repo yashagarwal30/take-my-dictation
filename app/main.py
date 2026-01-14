@@ -9,7 +9,8 @@ import os
 
 from app.core.config import settings
 from app.db.database import init_db, close_db
-from app.api import recordings, transcriptions, summaries, admin
+from app.api import recordings, transcriptions, summaries, admin, auth, payments, trials, users
+from app.services.scheduler import start_scheduler, stop_scheduler
 
 
 @asynccontextmanager
@@ -26,10 +27,16 @@ async def lifespan(app: FastAPI):
     await init_db()
     print("✅ Database initialized")
 
+    # Start background scheduler
+    await start_scheduler()
+    print("✅ Background scheduler started")
+
     yield
 
     # Shutdown
     print("👋 Shutting down...")
+    await stop_scheduler()
+    print("✅ Background scheduler stopped")
     await close_db()
     print("✅ Database connections closed")
 
@@ -53,6 +60,10 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth.router)
+app.include_router(trials.router)
+app.include_router(payments.router)
+app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(recordings.router, prefix="/recordings", tags=["Recordings"])
 app.include_router(transcriptions.router, prefix="/transcriptions", tags=["Transcriptions"])
 app.include_router(summaries.router, prefix="/summaries", tags=["Summaries"])

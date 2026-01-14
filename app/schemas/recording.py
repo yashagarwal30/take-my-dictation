@@ -45,6 +45,13 @@ class RecordingResponse(RecordingBase):
         from_attributes = True
 
 
+class RecordingUploadResponse(RecordingResponse):
+    """Schema for recording upload response with usage and retention info."""
+    usage_warning: Optional[str] = None
+    usage_info: Optional[dict] = None
+    retention_info: Optional[dict] = None
+
+
 class RecordingListResponse(BaseModel):
     """Schema for list of recordings."""
     recordings: list[RecordingResponse]

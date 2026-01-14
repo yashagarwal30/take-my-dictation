@@ -352,10 +352,6 @@ Verify your API keys are correctly set in `.env`:
 - [ ] Webhook notifications
 - [ ] Batch processing
 
-## License
-
-MIT License
-
 ## Frontend
 
 The React frontend is located in the `frontend/` directory. It provides:
