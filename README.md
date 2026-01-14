@@ -13,11 +13,18 @@ AI-powered voice recording app with automatic transcription and intelligent summ
 
 ## Tech Stack
 
+### Backend
 - **FastAPI**: Modern Python web framework
 - **PostgreSQL**: Database with async SQLAlchemy ORM
 - **OpenAI Whisper**: Speech-to-text transcription
 - **Anthropic Claude**: AI-powered summary generation
 - **FFmpeg**: Audio processing and metadata extraction
+
+### Frontend
+- **React**: UI framework
+- **Tailwind CSS**: Styling
+- **React Router**: Navigation
+- **Axios**: HTTP client
 
 ## Quick Start
 
@@ -85,15 +92,44 @@ ALLOWED_AUDIO_FORMATS=mp3,wav,m4a,ogg,flac
 
 ### 4. Run the Application
 
-```bash
-# Make sure virtual environment is activated
-source venv/bin/activate
+**Option 1: Use Startup Scripts (Recommended)**
 
-# Run the server
+Start both backend and frontend with a single command:
+
+```bash
+./start-all.sh
+```
+
+This will:
+- Start the backend on http://localhost:8000
+- Start the frontend on http://localhost:3000
+- Open your browser automatically
+- Monitor both services
+- Handle port conflicts and errors
+
+To stop, press `Ctrl+C`
+
+**Option 2: Start Services Separately**
+
+Backend only:
+```bash
+./start-backend.sh
+```
+
+Frontend only:
+```bash
+cd frontend
+npm start
+```
+
+Backend (manual):
+```bash
+source venv/bin/activate
 python -m uvicorn app.main:app --reload
 ```
 
 The API will be available at `http://localhost:8000`
+The frontend will be available at `http://localhost:3000`
 
 ## API Documentation
 
@@ -320,6 +356,30 @@ Verify your API keys are correctly set in `.env`:
 
 MIT License
 
+## Frontend
+
+The React frontend is located in the `frontend/` directory. It provides:
+- Audio recording interface
+- Real-time transcription processing
+- AI summary display with multiple formats
+- Recording dashboard
+- Subscription/pricing page
+
+See [frontend/README.md](frontend/README.md) for frontend-specific documentation.
+
+## Startup Scripts
+
+Three convenience scripts are provided:
+- `start-all.sh` - Start both backend and frontend
+- `start-backend.sh` - Start backend only
+- `start-frontend.sh` - Start frontend only
+
+These scripts handle:
+- Dependency checking
+- Port conflict resolution
+- Automatic logging
+- Graceful shutdown
+
 ## Support
 
-For issues and questions, please check the documentation at `PROJECT_DOCUMENTATION.md`
+For issues and questions, check the troubleshooting section above or review the API documentation at http://localhost:8000/docs

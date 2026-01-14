@@ -171,8 +171,8 @@ API_PORT=8001
 ## Next Steps
 
 - Read the full [README.md](README.md) for detailed documentation
-- Check [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md) for architecture details
 - Explore the interactive API docs at http://localhost:8000/docs
+- Check the frontend at [frontend/README.md](frontend/README.md)
 - Review the code in the `app/` directory
 
 ## Getting API Keys
@@ -194,5 +194,5 @@ API_PORT=8001
 
 For issues or questions:
 - Check the [README.md](README.md) troubleshooting section
-- Review the [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md)
-- Test endpoints using the interactive docs at `/docs`
+- Test endpoints using the interactive docs at http://localhost:8000/docs
+- Review the frontend guide at [frontend/README.md](frontend/README.md)
