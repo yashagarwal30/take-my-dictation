@@ -11,6 +11,7 @@ const ProcessingPage = () => {
 
   const [status, setStatus] = useState('Uploading audio...');
   const [error, setError] = useState(null);
+  const [subscriptionRequired, setSubscriptionRequired] = useState(false);
 
   const processRecording = useCallback(async () => {
     try {
@@ -28,7 +29,22 @@ const ProcessingPage = () => {
       }, 500);
     } catch (err) {
       console.error('Error processing recording:', err);
-      setError(err.response?.data?.detail || 'Failed to process recording. Please try again.');
+      const errorDetail = err.response?.data?.detail;
+
+      // Handle both string and object error details
+      if (typeof errorDetail === 'object' && errorDetail !== null) {
+        // Check if subscription is required
+        if (errorDetail.subscription_required || errorDetail.upgrade_required) {
+          // Show error message and allow navigation to subscription page
+          setError(errorDetail.message || 'Subscription required to continue.');
+          setSubscriptionRequired(true);
+        } else {
+          // If it's an object with a message property, use that
+          setError(errorDetail.message || 'Failed to process recording. Please try again.');
+        }
+      } else {
+        setError(errorDetail || 'Failed to process recording. Please try again.');
+      }
     }
   }, [recordingId, navigate]);
 
@@ -51,14 +67,35 @@ const ProcessingPage = () => {
             {error ? (
               <>
                 <div className="text-red-500 text-6xl mb-4">✕</div>
-                <h1 className="text-3xl font-bold text-red-600 mb-4">Processing Failed</h1>
+                <h1 className="text-3xl font-bold text-red-600 mb-4">
+                  {subscriptionRequired ? 'Subscription Required' : 'Processing Failed'}
+                </h1>
                 <p className="text-gray-600 mb-6">{error}</p>
-                <button
-                  onClick={() => navigate('/record')}
-                  className="bg-primary hover:bg-primary-dark text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
-                >
-                  Try Again
-                </button>
+                <div className="flex gap-4 justify-center">
+                  {subscriptionRequired ? (
+                    <>
+                      <button
+                        onClick={() => navigate('/subscribe')}
+                        className="bg-primary hover:bg-primary-dark text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
+                      >
+                        View Plans
+                      </button>
+                      <button
+                        onClick={() => navigate('/dashboard')}
+                        className="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
+                      >
+                        Go to Dashboard
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => navigate('/record')}
+                      className="bg-primary hover:bg-primary-dark text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
+                    >
+                      Try Again
+                    </button>
+                  )}
+                </div>
               </>
             ) : (
               <>

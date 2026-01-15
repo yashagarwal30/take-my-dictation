@@ -3,17 +3,37 @@ import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { apiService } from '../utils/api';
-import { FaFileAlt, FaTrash } from 'react-icons/fa';
+import { FaFileAlt, FaTrash, FaClock, FaCheckCircle } from 'react-icons/fa';
 
 const DashboardPage = () => {
   const navigate = useNavigate();
   const [recordings, setRecordings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [usageInfo, setUsageInfo] = useState(null);
+  const [isTrial, setIsTrial] = useState(false);
 
   useEffect(() => {
     fetchRecordings();
+    fetchUsageInfo();
   }, []);
+
+  const fetchUsageInfo = async () => {
+    try {
+      const trialMode = localStorage.getItem('isTrial') === 'true';
+      setIsTrial(trialMode);
+
+      if (trialMode) {
+        const response = await apiService.getTrialUsage();
+        setUsageInfo(response.data);
+      } else {
+        const response = await apiService.checkUsageStatus();
+        setUsageInfo(response.data);
+      }
+    } catch (err) {
+      console.error('Error fetching usage info:', err);
+    }
+  };
 
   const fetchRecordings = async () => {
     try {
@@ -44,6 +64,29 @@ const DashboardPage = () => {
     navigate('/summary', { state: { recordingId } });
   };
 
+  const handleNewRecording = () => {
+    // Check if user needs subscription
+    if (!isTrial && usageInfo && usageInfo.monthly_hours_limit <= 0) {
+      navigate('/subscription', {
+        state: {
+          message: 'Please subscribe to start recording. Your free trial has ended.'
+        }
+      });
+    } else {
+      navigate('/record');
+    }
+  };
+
+  const canRecord = () => {
+    if (!usageInfo) return false;
+
+    if (isTrial) {
+      return usageInfo.trial_minutes_remaining > 0;
+    } else {
+      return usageInfo.monthly_hours_limit > 0;
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col min-h-screen">
@@ -67,13 +110,74 @@ const DashboardPage = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center mb-8">
             <h1 className="text-4xl font-bold text-gray-800">My Dashboard</h1>
-            <button
-              onClick={() => navigate('/record')}
-              className="bg-primary hover:bg-primary-dark text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
-            >
-              New Recording
-            </button>
+            {canRecord() ? (
+              <button
+                onClick={handleNewRecording}
+                className="bg-primary hover:bg-primary-dark text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
+              >
+                New Recording
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate('/subscribe')}
+                className="bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
+              >
+                Subscribe to Record
+              </button>
+            )}
           </div>
+
+          {/* Subscription Status Card */}
+          {usageInfo && (
+            <div className="mb-6 bg-white rounded-lg shadow-lg p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-800 mb-2">
+                    {isTrial ? 'Free Trial' : `${usageInfo.subscription_tier?.toUpperCase() || 'FREE'} Plan`}
+                  </h2>
+                  {isTrial ? (
+                    <div className="flex items-center space-x-2 text-gray-600">
+                      <FaClock />
+                      <span>
+                        {usageInfo.trial_minutes_remaining > 0
+                          ? `${usageInfo.trial_minutes_remaining?.toFixed(1)} minutes remaining`
+                          : 'Trial expired'}
+                      </span>
+                    </div>
+                  ) : usageInfo.monthly_hours_limit > 0 ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center space-x-2 text-gray-600">
+                        <FaCheckCircle className="text-green-500" />
+                        <span>
+                          {usageInfo.monthly_hours_remaining?.toFixed(1)} of {usageInfo.monthly_hours_limit} hours remaining this month
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-green-500 h-2 rounded-full"
+                          style={{
+                            width: `${100 - (usageInfo.usage_percentage || 0)}%`
+                          }}
+                        ></div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-red-600 font-semibold">
+                      No active subscription - Subscribe to start recording
+                    </div>
+                  )}
+                </div>
+                {!isTrial && usageInfo.monthly_hours_limit <= 0 && (
+                  <button
+                    onClick={() => navigate('/subscribe')}
+                    className="bg-primary hover:bg-primary-dark text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
+                  >
+                    View Plans
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
@@ -86,12 +190,21 @@ const DashboardPage = () => {
               <FaFileAlt className="text-gray-300 text-6xl mx-auto mb-4" />
               <h2 className="text-2xl font-semibold text-gray-700 mb-2">No recordings yet</h2>
               <p className="text-gray-500 mb-6">Start by creating your first recording</p>
-              <button
-                onClick={() => navigate('/record')}
-                className="bg-primary hover:bg-primary-dark text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
-              >
-                Create Recording
-              </button>
+              {canRecord() ? (
+                <button
+                  onClick={handleNewRecording}
+                  className="bg-primary hover:bg-primary-dark text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
+                >
+                  Create Recording
+                </button>
+              ) : (
+                <button
+                  onClick={() => navigate('/subscribe')}
+                  className="bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
+                >
+                  Subscribe to Start Recording
+                </button>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-6">

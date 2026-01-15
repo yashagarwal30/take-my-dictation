@@ -159,6 +159,11 @@ class EmailService:
 
         except Exception as e:
             logger.error(f"Error sending verification email to {email}: {e}")
+            # In development mode, log the code anyway and return success
+            if settings.DEBUG:
+                logger.info(f"[DEV MODE] Verification code for {email}: {code}")
+                print(f"[DEV MODE] Verification code for {email}: {code}")
+                return True
             return False
 
     async def send_welcome_email(self, email: str, name: Optional[str] = None) -> bool:

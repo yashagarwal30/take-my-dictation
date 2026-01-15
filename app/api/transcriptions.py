@@ -45,6 +45,35 @@ async def create_transcription(
     if not recording:
         raise HTTPException(status_code=404, detail="Recording not found")
 
+    # Check usage limit BEFORE starting transcription
+    if recording.user_id:
+        from app.services.usage_tracking_service import UsageTrackingService
+        usage_service = UsageTrackingService()
+        usage_info = await usage_service.check_usage_limit(recording.user_id, db)
+
+        if usage_info["limit_exceeded"]:
+            # Generate appropriate error message
+            if usage_info["user_type"] == "trial":
+                raise HTTPException(
+                    status_code=403,
+                    detail="You've used your free 10 minutes. Subscribe to continue recording."
+                )
+            else:
+                # Check if this is a FREE tier user (no subscription)
+                if usage_info["monthly_hours_limit"] <= 0:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Please subscribe to start recording. Choose from Basic ($9.99/month) or Pro ($19.99/month) plans."
+                    )
+
+                # Paid user exceeded monthly limit
+                reset_date = usage_info.get("reset_date")
+                reset_str = reset_date.strftime("%B %d, %Y") if reset_date else "next month"
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Monthly limit reached. Resets on {reset_str}."
+                )
+
     # Check if transcription already exists
     result = await db.execute(
         select(Transcription).filter(Transcription.recording_id == request.recording_id)

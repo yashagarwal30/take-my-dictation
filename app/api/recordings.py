@@ -29,17 +29,17 @@ async def upload_recording(
     file: UploadFile = File(...),
     custom_name: Optional[str] = Query(None, description="Custom name for the recording"),
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_optional_user)
+    current_user: User = Depends(get_current_user)  # Changed to REQUIRE authentication
 ):
     """
     Upload an audio recording.
 
-    Checks usage limits if user is authenticated.
+    Requires authentication. Checks usage limits before allowing upload.
 
     Args:
         file: Audio file to upload
         db: Database session
-        current_user: Optional authenticated user
+        current_user: Authenticated user (required)
 
     Returns:
         Recording metadata
@@ -47,39 +47,50 @@ async def upload_recording(
     Raises:
         HTTPException: If file format is invalid, upload fails, or usage limit exceeded
     """
-    # Check usage limit if user is authenticated
-    if current_user:
-        from app.services.usage_tracking_service import UsageTrackingService
-        usage_service = UsageTrackingService()
-        usage_info = await usage_service.check_usage_limit(current_user.id, db)
+    # ALWAYS check usage limit (authentication now required)
+    from app.services.usage_tracking_service import UsageTrackingService
+    usage_service = UsageTrackingService()
+    usage_info = await usage_service.check_usage_limit(current_user.id, db)
 
-        if usage_info["limit_exceeded"]:
-            # Generate appropriate error message
-            if usage_info["user_type"] == "trial":
+    if usage_info["limit_exceeded"]:
+        # Generate appropriate error message
+        if usage_info["user_type"] == "trial":
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "Trial limit exceeded",
+                    "message": "You've used your free 10 minutes. Subscribe to continue recording.",
+                    "trial_minutes_used": usage_info["trial_minutes_used"],
+                    "upgrade_required": True
+                }
+            )
+        else:
+            # Check if this is a FREE tier user (no subscription)
+            if usage_info["monthly_hours_limit"] <= 0:
                 raise HTTPException(
                     status_code=403,
                     detail={
-                        "error": "Trial limit exceeded",
-                        "message": "You've used your free 10 minutes. Subscribe to continue recording.",
-                        "trial_minutes_used": usage_info["trial_minutes_used"],
-                        "upgrade_required": True
+                        "error": "Subscription required",
+                        "message": "Please subscribe to start recording. Choose from Basic ($9.99/month) or Pro ($19.99/month) plans.",
+                        "subscription_tier": usage_info["subscription_tier"],
+                        "subscription_required": True
                     }
                 )
-            else:
-                # Paid user exceeded monthly limit
-                reset_date = usage_info.get("reset_date")
-                reset_str = reset_date.strftime("%B %d, %Y") if reset_date else "next month"
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "error": "Monthly limit exceeded",
-                        "message": f"Monthly limit reached. Resets on {reset_str}.",
-                        "monthly_hours_used": usage_info["monthly_hours_used"],
-                        "monthly_hours_limit": usage_info["monthly_hours_limit"],
-                        "reset_date": reset_str,
-                        "upgrade_available": usage_info["subscription_tier"] == "basic"
-                    }
-                )
+
+            # Paid user exceeded monthly limit
+            reset_date = usage_info.get("reset_date")
+            reset_str = reset_date.strftime("%B %d, %Y") if reset_date else "next month"
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "Monthly limit exceeded",
+                    "message": f"Monthly limit reached. Resets on {reset_str}.",
+                    "monthly_hours_used": usage_info["monthly_hours_used"],
+                    "monthly_hours_limit": usage_info["monthly_hours_limit"],
+                    "reset_date": reset_str,
+                    "upgrade_available": usage_info["subscription_tier"] == "basic"
+                }
+            )
 
     # Validate file format
     file_extension = file.filename.split(".")[-1].lower()
@@ -101,9 +112,9 @@ async def upload_recording(
         # Get audio duration
         duration = await audio_service.get_audio_duration(file_path)
 
-        # Create database record
+        # Create database record (user is always authenticated now)
         recording = Recording(
-            user_id=current_user.id if current_user else None,
+            user_id=current_user.id,
             filename=unique_filename,
             original_filename=file.filename,
             custom_name=custom_name if custom_name else None,
@@ -140,28 +151,27 @@ async def upload_recording(
             "updated_at": recording.updated_at
         }
 
-        # Add usage warnings if user is authenticated
-        if current_user:
-            usage_service = UsageTrackingService()
-            usage_check = await usage_service.check_usage_limit(current_user.id, db)
-            warning = await usage_service.get_usage_warning_message(usage_check)
+        # Add usage warnings (user is always authenticated now)
+        usage_service = UsageTrackingService()
+        usage_check = await usage_service.check_usage_limit(current_user.id, db)
+        warning = await usage_service.get_usage_warning_message(usage_check)
 
-            if warning:
-                response_data["usage_warning"] = warning
+        if warning:
+            response_data["usage_warning"] = warning
 
-            # Include basic usage info
-            if usage_check["user_type"] == "trial":
-                response_data["usage_info"] = {
-                    "trial_minutes_used": usage_check["trial_minutes_used"],
-                    "trial_minutes_remaining": usage_check["trial_minutes_remaining"]
-                }
-            else:
-                response_data["usage_info"] = {
-                    "monthly_hours_used": usage_check["monthly_hours_used"],
-                    "monthly_hours_limit": usage_check["monthly_hours_limit"],
-                    "monthly_hours_remaining": usage_check["monthly_hours_remaining"],
-                    "usage_percentage": usage_check["usage_percentage"]
-                }
+        # Include basic usage info
+        if usage_check["user_type"] == "trial":
+            response_data["usage_info"] = {
+                "trial_minutes_used": usage_check["trial_minutes_used"],
+                "trial_minutes_remaining": usage_check["trial_minutes_remaining"]
+            }
+        else:
+            response_data["usage_info"] = {
+                "monthly_hours_used": usage_check["monthly_hours_used"],
+                "monthly_hours_limit": usage_check["monthly_hours_limit"],
+                "monthly_hours_remaining": usage_check["monthly_hours_remaining"],
+                "usage_percentage": usage_check["usage_percentage"]
+            }
 
         # Add retention info
         retention_status = await retention_service.check_retention_status(recording.id, db)

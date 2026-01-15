@@ -127,6 +127,9 @@ async def start_trial(
         raise
     except Exception as e:
         await db.rollback()
+        print(f"ERROR in start_trial: {type(e).__name__}: {str(e)}")  # Debug logging
+        import traceback
+        traceback.print_exc()  # Print full traceback
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to start trial. Please try again."

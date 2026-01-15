@@ -23,7 +23,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    email = Column(String, unique=True, nullable=False, index=True)
+    email = Column(String, unique=True, nullable=True, index=True)  # Nullable for trial users
     hashed_password = Column(String, nullable=True)  # Nullable for trial users
     full_name = Column(String, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)

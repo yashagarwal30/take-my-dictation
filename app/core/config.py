@@ -32,8 +32,13 @@ class Settings(BaseSettings):
     STRIPE_PUBLISHABLE_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
 
-    # Email Service (SendGrid)
+    # Email Service Configuration
+    EMAIL_SERVICE: str = "sendgrid"  # 'sendgrid' or 'ses'
     SENDGRID_API_KEY: str = ""
+    # AWS SES Configuration (if using ses)
+    AWS_SES_REGION: str = "us-east-1"
+    AWS_SES_ACCESS_KEY_ID: str = ""
+    AWS_SES_SECRET_ACCESS_KEY: str = ""
     EMAIL_FROM_ADDRESS: str = "noreply@takemydictation.ai"
     EMAIL_FROM_NAME: str = "Take My Dictation"
 
@@ -43,6 +48,24 @@ class Settings(BaseSettings):
 
     # Audio Processing
     ALLOWED_AUDIO_FORMATS: str = "mp3,wav,m4a,ogg,flac,webm"
+
+    # Redis Configuration (for rate limiting and caching)
+    REDIS_URL: str = ""  # Optional: If not set, in-memory rate limiting is used
+
+    # JWT Configuration
+    JWT_SECRET_KEY: str = ""  # Will fallback to SECRET_KEY if not set
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    TRIAL_TOKEN_EXPIRE_HOURS: int = 24
+
+    # Trial Configuration
+    TRIAL_MINUTES_LIMIT: int = 10
+
+    # Rate Limiting
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_AUTH: int = 5  # per minute
+    RATE_LIMIT_TRIAL: int = 10  # per minute
+    RATE_LIMIT_UPLOAD: int = 20  # per minute
 
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
@@ -57,6 +80,25 @@ class Settings(BaseSettings):
     def allowed_formats_list(self) -> List[str]:
         """Convert comma-separated formats to list."""
         return [fmt.strip() for fmt in self.ALLOWED_AUDIO_FORMATS.split(",")]
+
+    @property
+    def jwt_secret(self) -> str:
+        """Get JWT secret key, fallback to SECRET_KEY if not set."""
+        return self.JWT_SECRET_KEY or self.SECRET_KEY
+
+    @property
+    def is_redis_enabled(self) -> bool:
+        """Check if Redis is configured."""
+        return bool(self.REDIS_URL)
+
+    @property
+    def is_email_configured(self) -> bool:
+        """Check if email service is properly configured."""
+        if self.EMAIL_SERVICE == "sendgrid":
+            return bool(self.SENDGRID_API_KEY)
+        elif self.EMAIL_SERVICE == "ses":
+            return bool(self.AWS_SES_ACCESS_KEY_ID and self.AWS_SES_SECRET_ACCESS_KEY)
+        return False
 
 
 # Global settings instance

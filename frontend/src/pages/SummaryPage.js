@@ -63,26 +63,26 @@ const SummaryPage = () => {
     setError(null);
 
     try {
-      let customPrompt = null;
+      let format = 'quick_summary';
 
       switch (formatType) {
         case 'meeting':
-          customPrompt = 'Generate a meeting notes format with attendees, discussion points, decisions, and action items.';
+          format = 'meeting_notes';
           break;
         case 'product':
-          customPrompt = 'Generate a product specification document with problem statement, requirements, user stories, and technical considerations.';
+          format = 'product_spec';
           break;
         case 'mom':
-          customPrompt = 'Generate minutes of meeting with agenda items, key discussions, decisions made, action items with owners, and next steps.';
+          format = 'mom';
           break;
         case 'quick':
-          customPrompt = 'Generate a quick summary with just the main points in bullet format. Keep it concise.';
+          format = 'quick_summary';
           break;
         default:
-          customPrompt = null;
+          format = 'quick_summary';
       }
 
-      const response = await apiService.generateSummary(recordingId, customPrompt);
+      const response = await apiService.generateSummary(recordingId, format, null);
       setSummary(response.data.summary_text);
       setGeneratingSummary(false);
     } catch (err) {

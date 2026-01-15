@@ -12,24 +12,45 @@ const RecordingPage = () => {
   const [error, setError] = useState(null);
   const [trialUsage, setTrialUsage] = useState(null);
   const [isTrial, setIsTrial] = useState(false);
+  const [subscriptionRequired, setSubscriptionRequired] = useState(false);
+  const [checkingSubscription, setCheckingSubscription] = useState(true);
 
   useEffect(() => {
-    // Check if user is in trial mode
-    const trialMode = localStorage.getItem('isTrial') === 'true';
-    setIsTrial(trialMode);
-
-    // Fetch trial usage if in trial mode
-    if (trialMode) {
-      fetchTrialUsage();
-    }
+    checkUserSubscriptionStatus();
   }, []);
 
-  const fetchTrialUsage = async () => {
+  const checkUserSubscriptionStatus = async () => {
     try {
-      const response = await apiService.getTrialUsage();
-      setTrialUsage(response.data);
+      // Check if user is in trial mode
+      const trialMode = localStorage.getItem('isTrial') === 'true';
+      setIsTrial(trialMode);
+
+      if (trialMode) {
+        // Fetch trial usage
+        const response = await apiService.getTrialUsage();
+        setTrialUsage(response.data);
+        setCheckingSubscription(false);
+      } else {
+        // Check regular user's subscription status
+        const usageResponse = await apiService.checkUsageStatus();
+        const usageData = usageResponse.data;
+
+        // If user has no subscription (monthly_hours_limit = 0), redirect to subscription page
+        if (usageData.monthly_hours_limit <= 0) {
+          // Redirect to subscription page with a message
+          navigate('/subscription', {
+            state: {
+              message: 'Please subscribe to start recording. Your free trial has ended.'
+            }
+          });
+          return;
+        }
+
+        setCheckingSubscription(false);
+      }
     } catch (err) {
-      console.error('Error fetching trial usage:', err);
+      console.error('Error checking subscription status:', err);
+      setCheckingSubscription(false);
     }
   };
 
@@ -67,7 +88,20 @@ const RecordingPage = () => {
       navigate('/processing', { state: { recordingId } });
     } catch (err) {
       console.error('Error uploading audio:', err);
-      setError(err.response?.data?.detail || 'Failed to upload audio. Please try again.');
+      const errorDetail = err.response?.data?.detail;
+
+      // Handle both string and object error details
+      if (typeof errorDetail === 'object' && errorDetail !== null) {
+        // Check if subscription is required
+        if (errorDetail.subscription_required || errorDetail.upgrade_required) {
+          setError(errorDetail.message || 'Subscription required to continue.');
+          setSubscriptionRequired(true);
+        } else {
+          setError(errorDetail.message || 'Failed to upload audio. Please try again.');
+        }
+      } else {
+        setError(errorDetail || 'Failed to upload audio. Please try again.');
+      }
       setIsUploading(false);
     }
   };
@@ -118,11 +152,24 @@ const RecordingPage = () => {
 
             {error && (
               <div className="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-                {error}
+                <p className="mb-2">{error}</p>
+                {subscriptionRequired && (
+                  <button
+                    onClick={() => navigate('/subscribe')}
+                    className="mt-2 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded transition duration-200"
+                  >
+                    View Subscription Plans
+                  </button>
+                )}
               </div>
             )}
 
-            {isUploading ? (
+            {checkingSubscription ? (
+              <div className="text-center py-12">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+                <p className="text-lg text-gray-700">Checking subscription status...</p>
+              </div>
+            ) : isUploading ? (
               <div className="text-center py-12">
                 <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
                 <p className="text-lg text-gray-700">Uploading your recording...</p>

@@ -50,8 +50,9 @@ export const apiService = {
   updateTranscription: (transcriptionId, text) => api.put(`/transcriptions/${transcriptionId}`, { text }),
 
   // Summary endpoints
-  generateSummary: (recordingId, customPrompt = null) => api.post('/summaries/generate', {
+  generateSummary: (recordingId, format = 'quick_summary', customPrompt = null) => api.post('/summaries/generate', {
     recording_id: recordingId,
+    format: format,
     custom_prompt: customPrompt,
   }),
   getSummary: (recordingId) => api.get(`/summaries/${recordingId}`),

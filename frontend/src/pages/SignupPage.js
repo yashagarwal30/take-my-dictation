@@ -37,9 +37,19 @@ const SignupPage = () => {
       return;
     }
 
-    // Validate password length
+    // Validate password strength
     if (formData.password.length < 8) {
       setError('Password must be at least 8 characters long');
+      return;
+    }
+
+    if (!/[0-9]/.test(formData.password)) {
+      setError('Password must contain at least one number');
+      return;
+    }
+
+    if (!/[a-zA-Z]/.test(formData.password)) {
+      setError('Password must contain at least one letter');
       return;
     }
 
@@ -144,7 +154,7 @@ const SignupPage = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                   placeholder="••••••••"
                 />
-                <p className="text-xs text-gray-500 mt-1">Must be at least 8 characters</p>
+                <p className="text-xs text-gray-500 mt-1">Must be at least 8 characters with at least one letter and one number</p>
               </div>
 
               <div>

@@ -9,7 +9,7 @@ import os
 
 from app.core.config import settings
 from app.db.database import init_db, close_db
-from app.api import recordings, transcriptions, summaries, admin, auth, payments, trials, users
+from app.api import recordings, transcriptions, summaries, admin, auth, payments, trials, users, analytics
 from app.services.scheduler import start_scheduler, stop_scheduler
 
 
@@ -67,6 +67,7 @@ app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(recordings.router, prefix="/recordings", tags=["Recordings"])
 app.include_router(transcriptions.router, prefix="/transcriptions", tags=["Transcriptions"])
 app.include_router(summaries.router, prefix="/summaries", tags=["Summaries"])
+app.include_router(analytics.router)
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 
 

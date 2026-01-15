@@ -15,8 +15,7 @@ from app.models.user import User
 from app.schemas.summary import SummaryGenerate, SummaryRegenerate, SummaryRename, SummaryResponse
 from app.services.summary_service import SummaryService
 from app.services.export_service import export_service
-from app.core.security import get_current_user
-from app.core.dependencies import require_can_regenerate
+from app.core.dependencies import get_current_user, require_can_regenerate
 from typing import Optional, List
 
 router = APIRouter()

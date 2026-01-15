@@ -131,7 +131,7 @@ class ExportService:
             'CustomHeading',
             parent=styles['Heading2'],
             fontSize=16,
-            textColor=RGBColor(0x1F, 0x2937),
+            textColor=RGBColor(0x1F, 0x29, 0x37),  # Dark gray color
             spaceAfter=12,
             spaceBefore=12
         )

@@ -31,7 +31,7 @@ class Summary(Base):
     action_items = Column(JSON, nullable=True)  # List of action items
 
     # Format and naming
-    format = Column(Enum(SummaryFormat), default=SummaryFormat.QUICK_SUMMARY, nullable=False, index=True)
+    format = Column(Enum(SummaryFormat, values_callable=lambda x: [e.value for e in x]), default=SummaryFormat.QUICK_SUMMARY, nullable=False, index=True)
     custom_name = Column(String, nullable=True)  # User-provided name for saved summaries
     is_saved = Column(Boolean, default=False, nullable=False)  # Saved to dashboard or temporary
 

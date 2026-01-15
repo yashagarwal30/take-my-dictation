@@ -127,7 +127,14 @@ class UsageTrackingService:
         hours_limit = user.monthly_hours_limit or 0
         hours_used = user.monthly_hours_used
         hours_remaining = max(0, hours_limit - hours_used)
-        limit_exceeded = hours_used >= hours_limit if hours_limit > 0 else False
+
+        # FREE tier users (no limit set) should be blocked from uploading
+        # They need to subscribe first to get a limit
+        if hours_limit <= 0:
+            limit_exceeded = True
+        else:
+            limit_exceeded = hours_used >= hours_limit
+
         usage_percentage = (hours_used / hours_limit * 100) if hours_limit > 0 else 0
 
         return {
