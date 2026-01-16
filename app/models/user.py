@@ -36,8 +36,9 @@ class User(Base):
 
     # Subscription details
     subscription_tier = Column(Enum(SubscriptionTier), default=SubscriptionTier.FREE, nullable=False)
-    stripe_customer_id = Column(String, nullable=True, unique=True)
-    stripe_subscription_id = Column(String, nullable=True)
+    razorpay_customer_id = Column(String, nullable=True, unique=True)
+    razorpay_subscription_id = Column(String, nullable=True)
+    razorpay_plan_id = Column(String, nullable=True)  # Razorpay plan ID for active subscription
     subscription_expires_at = Column(DateTime, nullable=True)
 
     # Usage tracking

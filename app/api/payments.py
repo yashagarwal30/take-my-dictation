@@ -1,28 +1,34 @@
 """
-Stripe payment API endpoints for subscription management.
+Razorpay payment API endpoints for subscription management.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, date
 from typing import Dict
-import stripe
+import razorpay
+import json
+import hmac
+import hashlib
 
 from app.db.database import get_db
 from app.models.user import User, SubscriptionTier
 from app.core.config import settings
 from app.core.dependencies import get_current_user
 
-# Initialize Stripe
-stripe.api_key = settings.STRIPE_SECRET_KEY
+# Initialize Razorpay client
+razorpay_client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
 # Pricing configuration
+# NOTE: You must create these plans in Razorpay Dashboard first and update the plan IDs
 PRICING_PLANS = {
     "basic": {
         "name": "Basic",
-        "monthly_price": 999,  # $9.99 in cents
-        "annual_price": 9900,  # $99/year in cents (17% savings)
+        "monthly_price": 99900,  # ₹999 in paise
+        "annual_price": 999900,  # ₹9999/year in paise (17% savings)
+        "monthly_plan_id": "plan_S4ebA2udNY8X5M",
+        "annual_plan_id": "plan_S4ebnOm5UdkjPT",
         "monthly_hours": 10,
         "features": [
             "10 hours of transcription per month",
@@ -34,8 +40,10 @@ PRICING_PLANS = {
     },
     "pro": {
         "name": "Pro",
-        "monthly_price": 1999,  # $19.99 in cents
-        "annual_price": 19900,  # $199/year in cents (17% savings)
+        "monthly_price": 199900,  # ₹1999 in paise
+        "annual_price": 1999900,  # ₹19999/year in paise (17% savings)
+        "monthly_plan_id": "plan_S4ecU7WUVvD2Tw",
+        "annual_plan_id": "plan_S4ecvFLb3EhCFJ",
         "monthly_hours": 50,
         "features": [
             "50 hours of transcription per month",
@@ -53,7 +61,7 @@ async def get_pricing_plans():
     """Get available subscription plans."""
     return {
         "plans": PRICING_PLANS,
-        "publishable_key": settings.STRIPE_PUBLISHABLE_KEY
+        "key_id": settings.RAZORPAY_KEY_ID  # Public key for frontend
     }
 
 
@@ -65,7 +73,7 @@ async def create_checkout_session(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Create a Stripe checkout session for subscription.
+    Create a Razorpay subscription for checkout.
     Protected endpoint - requires authentication.
     Supports both monthly and annual billing.
     """
@@ -85,8 +93,8 @@ async def create_checkout_session(
             detail="Invalid interval. Must be 'month' or 'year'"
         )
 
-    # Verify Stripe is configured
-    if not settings.STRIPE_SECRET_KEY or len(settings.STRIPE_SECRET_KEY) < 10:
+    # Verify Razorpay is configured
+    if not settings.RAZORPAY_KEY_ID or len(settings.RAZORPAY_KEY_ID) < 10:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Payment processing is not configured"
@@ -101,173 +109,193 @@ async def create_checkout_session(
             )
 
     try:
-        # Create or retrieve Stripe customer
-        if current_user.stripe_customer_id:
-            # Verify customer exists in Stripe
-            try:
-                stripe.Customer.retrieve(current_user.stripe_customer_id)
-                customer_id = current_user.stripe_customer_id
-            except stripe.error.InvalidRequestError:
-                # Customer doesn't exist, create new one
-                customer = stripe.Customer.create(
-                    email=current_user.email,
-                    metadata={
-                        "user_id": current_user.id,
-                        "environment": "production" if not settings.DEBUG else "development"
-                    }
-                )
-                customer_id = customer.id
-                current_user.stripe_customer_id = customer_id
-                await db.commit()
+        # Create or retrieve Razorpay customer
+        if current_user.razorpay_customer_id:
+            customer_id = current_user.razorpay_customer_id
         else:
-            customer = stripe.Customer.create(
-                email=current_user.email,
-                metadata={
+            # Create new Razorpay customer
+            customer_data = {
+                "name": current_user.full_name or current_user.email,
+                "email": current_user.email,
+                "notes": {
                     "user_id": current_user.id,
                     "environment": "production" if not settings.DEBUG else "development"
                 }
-            )
-            customer_id = customer.id
-            current_user.stripe_customer_id = customer_id
+            }
+
+            customer = razorpay_client.customer.create(data=customer_data)
+            customer_id = customer["id"]
+            current_user.razorpay_customer_id = customer_id
             await db.commit()
 
-        # Create checkout session
+        # Select plan ID based on interval
         plan_config = PRICING_PLANS[plan]
+        plan_id = plan_config["monthly_plan_id"] if interval == "month" else plan_config["annual_plan_id"]
 
-        # Select price based on interval
-        unit_amount = plan_config["monthly_price"] if interval == "month" else plan_config["annual_price"]
+        # Check if plan ID has been configured
+        if "REPLACE_WITH" in plan_id:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Payment plans not configured. Please create plans in Razorpay Dashboard."
+            )
 
-        checkout_session = stripe.checkout.Session.create(
-            customer=customer_id,
-            payment_method_types=["card"],
-            line_items=[{
-                "price_data": {
-                    "currency": "usd",
-                    "product_data": {
-                        "name": f"{plan_config['name']} Plan - {'Monthly' if interval == 'month' else 'Annual'}",
-                        "description": ", ".join(plan_config["features"][:3]),
-                    },
-                    "unit_amount": unit_amount,
-                    "recurring": {
-                        "interval": interval
-                    }
-                },
-                "quantity": 1,
-            }],
-            mode="subscription",
-            success_url=f"{settings.CORS_ORIGINS[0]}/subscribe?session_id={{CHECKOUT_SESSION_ID}}&success=true",
-            cancel_url=f"{settings.CORS_ORIGINS[0]}/subscribe?canceled=true",
-            metadata={
+        # Create subscription
+        subscription_data = {
+            "plan_id": plan_id,
+            "customer_id": customer_id,
+            "quantity": 1,
+            "customer_notify": 1,  # Send notifications to customer
+            "notes": {
                 "user_id": current_user.id,
                 "plan": plan,
                 "interval": interval
             }
-        )
+        }
 
-        return {"session_id": checkout_session.id, "url": checkout_session.url}
+        # For annual: 12 billing cycles, for monthly: large number for ongoing subscription
+        if interval == "year":
+            subscription_data["total_count"] = 12  # 12 months for annual
+        else:
+            subscription_data["total_count"] = 120  # 10 years worth of monthly billing
 
-    except stripe.error.StripeError as e:
+        subscription = razorpay_client.subscription.create(data=subscription_data)
+
+        # Store subscription ID and plan ID
+        current_user.razorpay_subscription_id = subscription["id"]
+        current_user.razorpay_plan_id = plan_id
+        await db.commit()
+
+        return {
+            "subscription_id": subscription["id"],
+            "plan_id": plan_id,
+            "key_id": settings.RAZORPAY_KEY_ID,
+            "customer_id": customer_id
+        }
+
+    except razorpay.errors.BadRequestError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating subscription: {str(e)}"
+        )
 
 
 @router.post("/webhook")
-async def stripe_webhook(
+async def razorpay_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Handle Stripe webhook events.
+    Handle Razorpay webhook events.
     CRITICAL: Validates webhook signature to prevent fraudulent requests.
     """
     # Verify webhook secret is configured
-    if not settings.STRIPE_WEBHOOK_SECRET or len(settings.STRIPE_WEBHOOK_SECRET) < 10:
+    if not settings.RAZORPAY_WEBHOOK_SECRET or len(settings.RAZORPAY_WEBHOOK_SECRET) < 10:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Webhook secret not configured"
         )
 
     payload = await request.body()
-    sig_header = request.headers.get("stripe-signature")
+    webhook_signature = request.headers.get("X-Razorpay-Signature")
 
     # Validate signature header exists
-    if not sig_header:
+    if not webhook_signature:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing stripe-signature header"
+            detail="Missing X-Razorpay-Signature header"
         )
 
     try:
         # CRITICAL: Verify webhook signature to prevent spoofing
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+        razorpay_client.utility.verify_webhook_signature(
+            payload.decode('utf-8'),
+            webhook_signature,
+            settings.RAZORPAY_WEBHOOK_SECRET
         )
-    except ValueError as e:
-        # Invalid payload
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid payload"
-        )
-    except stripe.error.SignatureVerificationError as e:
+    except Exception as e:
         # Invalid signature - potential attack
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid signature"
         )
 
+    # Parse event
+    try:
+        event = json.loads(payload)
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON payload"
+        )
+
+    event_type = event.get("event")
+
     # Handle the event
     try:
-        if event["type"] == "checkout.session.completed":
-            session = event["data"]["object"]
-            await handle_checkout_session_completed(session, db)
+        if event_type == "subscription.activated":
+            subscription = event["payload"]["subscription"]["entity"]
+            await handle_subscription_activated(subscription, db)
 
-        elif event["type"] == "customer.subscription.updated":
-            subscription = event["data"]["object"]
+        elif event_type == "subscription.charged":
+            subscription = event["payload"]["subscription"]["entity"]
+            await handle_subscription_charged(subscription, db)
+
+        elif event_type == "subscription.updated":
+            subscription = event["payload"]["subscription"]["entity"]
             await handle_subscription_updated(subscription, db)
 
-        elif event["type"] == "customer.subscription.deleted":
-            subscription = event["data"]["object"]
-            await handle_subscription_deleted(subscription, db)
+        elif event_type == "subscription.cancelled":
+            subscription = event["payload"]["subscription"]["entity"]
+            await handle_subscription_cancelled(subscription, db)
+
+        elif event_type == "subscription.halted":
+            subscription = event["payload"]["subscription"]["entity"]
+            await handle_subscription_halted(subscription, db)
 
         # Acknowledge receipt of event
         return {"status": "success", "received": True}
 
     except Exception as e:
-        # Log the error but return success to Stripe to avoid retries
+        # Log the error but return success to Razorpay to avoid retries
         # You should log this to your monitoring system
         print(f"Error processing webhook: {str(e)}")
         return {"status": "error", "message": "Internal processing error"}
 
 
-async def handle_checkout_session_completed(session: Dict, db: AsyncSession):
+async def handle_subscription_activated(subscription: Dict, db: AsyncSession):
     """
-    Handle successful checkout session.
+    Handle subscription activation (first payment success).
     Validates all data before updating user subscription.
     Sets monthly_hours_limit and subscription_anniversary_date.
     """
     from sqlalchemy import select
 
-    # Validate required fields exist
-    if "metadata" not in session or "user_id" not in session["metadata"]:
-        raise ValueError("Missing user_id in session metadata")
+    customer_id = subscription.get("customer_id")
 
-    user_id = session["metadata"]["user_id"]
-    plan = session["metadata"].get("plan", "").lower()
-    interval = session["metadata"].get("interval", "month")
+    if not customer_id:
+        raise ValueError("Missing customer_id in subscription")
 
-    # Validate plan
-    if plan not in PRICING_PLANS:
-        raise ValueError(f"Invalid plan in metadata: {plan}")
-
-    subscription_id = session.get("subscription")
-
-    result = await db.execute(select(User).filter(User.id == user_id))
+    result = await db.execute(
+        select(User).filter(User.razorpay_customer_id == customer_id)
+    )
     user = result.scalar_one_or_none()
 
     if user:
-        # Get plan configuration
+        # Extract plan details from subscription
+        plan_id = subscription.get("plan_id")
+        notes = subscription.get("notes", {})
+        plan = notes.get("plan", "").lower()
+        interval = notes.get("interval", "month")
+
+        # Validate plan
+        if plan not in PRICING_PLANS:
+            raise ValueError(f"Invalid plan in subscription notes: {plan}")
+
         plan_config = PRICING_PLANS[plan]
 
         # Update user subscription
@@ -279,21 +307,18 @@ async def handle_checkout_session_completed(session: Dict, db: AsyncSession):
             user.monthly_hours_limit = 50.0
 
         # Set subscription details
-        user.stripe_subscription_id = subscription_id
+        user.razorpay_subscription_id = subscription["id"]
+        user.razorpay_plan_id = plan_id
 
         # Set subscription anniversary date (day of month for reset)
         today = date.today()
         user.subscription_anniversary_date = today
 
-        # Calculate next reset date
-        if interval == "month":
-            # Monthly subscription - expires in 30 days
-            user.subscription_expires_at = datetime.utcnow() + timedelta(days=30)
-            user.usage_reset_at = datetime.utcnow() + timedelta(days=30)
-        else:
-            # Annual subscription - expires in 365 days
-            user.subscription_expires_at = datetime.utcnow() + timedelta(days=365)
-            user.usage_reset_at = datetime.utcnow() + timedelta(days=30)  # Still reset monthly
+        # Razorpay provides current_start and current_end timestamps
+        current_end = subscription.get("current_end")
+        if current_end:
+            user.subscription_expires_at = datetime.fromtimestamp(current_end)
+            user.usage_reset_at = datetime.fromtimestamp(current_end)
 
         # Reset usage for new subscription
         user.monthly_hours_used = 0.0
@@ -301,33 +326,98 @@ async def handle_checkout_session_completed(session: Dict, db: AsyncSession):
         await db.commit()
 
 
-async def handle_subscription_updated(subscription: Dict, db: AsyncSession):
-    """Handle subscription updates."""
+async def handle_subscription_charged(subscription: Dict, db: AsyncSession):
+    """Handle successful recurring payment."""
     from sqlalchemy import select
 
-    customer_id = subscription["customer"]
-    result = await db.execute(select(User).filter(User.stripe_customer_id == customer_id))
+    customer_id = subscription.get("customer_id")
+
+    if not customer_id:
+        return
+
+    result = await db.execute(
+        select(User).filter(User.razorpay_customer_id == customer_id)
+    )
     user = result.scalar_one_or_none()
 
     if user:
-        # Update subscription expiration
-        user.subscription_expires_at = datetime.fromtimestamp(subscription["current_period_end"])
+        # Update expiration date
+        current_end = subscription.get("current_end")
+        if current_end:
+            user.subscription_expires_at = datetime.fromtimestamp(current_end)
+            user.usage_reset_at = datetime.fromtimestamp(current_end)
+
         await db.commit()
 
 
-async def handle_subscription_deleted(subscription: Dict, db: AsyncSession):
+async def handle_subscription_updated(subscription: Dict, db: AsyncSession):
+    """Handle subscription updates (plan changes, etc.)."""
+    from sqlalchemy import select
+
+    customer_id = subscription.get("customer_id")
+
+    if not customer_id:
+        return
+
+    result = await db.execute(
+        select(User).filter(User.razorpay_customer_id == customer_id)
+    )
+    user = result.scalar_one_or_none()
+
+    if user:
+        # Update expiration date if changed
+        current_end = subscription.get("current_end")
+        if current_end:
+            user.subscription_expires_at = datetime.fromtimestamp(current_end)
+
+        await db.commit()
+
+
+async def handle_subscription_cancelled(subscription: Dict, db: AsyncSession):
     """Handle subscription cancellation."""
     from sqlalchemy import select
 
-    customer_id = subscription["customer"]
-    result = await db.execute(select(User).filter(User.stripe_customer_id == customer_id))
+    customer_id = subscription.get("customer_id")
+
+    if not customer_id:
+        return
+
+    result = await db.execute(
+        select(User).filter(User.razorpay_customer_id == customer_id)
+    )
     user = result.scalar_one_or_none()
 
     if user:
         # Downgrade to free tier
         user.subscription_tier = SubscriptionTier.FREE
-        user.stripe_subscription_id = None
+        user.razorpay_subscription_id = None
+        user.razorpay_plan_id = None
         user.subscription_expires_at = None
+        user.monthly_hours_limit = None
+        user.monthly_hours_used = 0.0
+
+        await db.commit()
+
+
+async def handle_subscription_halted(subscription: Dict, db: AsyncSession):
+    """Handle subscription halted due to payment failure."""
+    from sqlalchemy import select
+
+    customer_id = subscription.get("customer_id")
+
+    if not customer_id:
+        return
+
+    result = await db.execute(
+        select(User).filter(User.razorpay_customer_id == customer_id)
+    )
+    user = result.scalar_one_or_none()
+
+    if user:
+        # Mark subscription as expired but don't delete - user might retry payment
+        # Razorpay will send cancelled event if subscription is truly cancelled
+        user.subscription_expires_at = datetime.utcnow() - timedelta(days=1)  # Mark as expired
+
         await db.commit()
 
 
@@ -339,10 +429,11 @@ async def change_plan(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Upgrade or downgrade subscription plan with prorated billing.
+    Upgrade or downgrade subscription plan.
     Handles Basic ↔ Pro transitions.
+    Note: Razorpay doesn't have built-in proration, so this cancels old subscription and creates new one.
     """
-    if not current_user.stripe_subscription_id:
+    if not current_user.razorpay_subscription_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No active subscription found. Please subscribe first."
@@ -373,39 +464,41 @@ async def change_plan(
         )
 
     try:
-        # Get current subscription from Stripe
-        subscription = stripe.Subscription.retrieve(current_user.stripe_subscription_id)
+        # Cancel existing subscription
+        razorpay_client.subscription.cancel(current_user.razorpay_subscription_id)
 
-        # Get new plan config
+        # Create new subscription with new plan
         plan_config = PRICING_PLANS[new_plan]
-        new_price = plan_config["monthly_price"] if new_interval == "month" else plan_config["annual_price"]
+        new_plan_id = plan_config["monthly_plan_id"] if new_interval == "month" else plan_config["annual_plan_id"]
 
-        # Create new price in Stripe or use existing
-        price = stripe.Price.create(
-            unit_amount=new_price,
-            currency="usd",
-            recurring={"interval": new_interval},
-            product_data={
-                "name": f"{plan_config['name']} Plan - {'Monthly' if new_interval == 'month' else 'Annual'}",
-            },
-        )
+        # Check if plan ID has been configured
+        if "REPLACE_WITH" in new_plan_id:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Payment plans not configured"
+            )
 
-        # Update subscription with proration
-        updated_subscription = stripe.Subscription.modify(
-            current_user.stripe_subscription_id,
-            items=[{
-                "id": subscription["items"]["data"][0].id,
-                "price": price.id,
-            }],
-            proration_behavior="create_prorations",  # Enable proration
-            metadata={
+        subscription_data = {
+            "plan_id": new_plan_id,
+            "customer_id": current_user.razorpay_customer_id,
+            "quantity": 1,
+            "customer_notify": 1,
+            "notes": {
                 "user_id": current_user.id,
                 "plan": new_plan,
                 "interval": new_interval
             }
-        )
+        }
 
-        # Update user in database
+        # For annual: 12 billing cycles, for monthly: large number for ongoing subscription
+        if new_interval == "year":
+            subscription_data["total_count"] = 12
+        else:
+            subscription_data["total_count"] = 120  # 10 years worth of monthly billing
+
+        subscription = razorpay_client.subscription.create(data=subscription_data)
+
+        # Update database
         if new_plan == "basic":
             current_user.subscription_tier = SubscriptionTier.BASIC
             current_user.monthly_hours_limit = 10.0
@@ -413,10 +506,13 @@ async def change_plan(
             current_user.subscription_tier = SubscriptionTier.PRO
             current_user.monthly_hours_limit = 50.0
 
-        # Update expiration based on new interval
-        current_user.subscription_expires_at = datetime.fromtimestamp(
-            updated_subscription["current_period_end"]
-        )
+        current_user.razorpay_subscription_id = subscription["id"]
+        current_user.razorpay_plan_id = new_plan_id
+
+        # Update expiration
+        current_end = subscription.get("current_end")
+        if current_end:
+            current_user.subscription_expires_at = datetime.fromtimestamp(current_end)
 
         await db.commit()
 
@@ -424,13 +520,18 @@ async def change_plan(
             "message": f"Plan changed to {plan_config['name']} successfully",
             "new_plan": new_plan,
             "monthly_hours_limit": current_user.monthly_hours_limit,
-            "proration_applied": True
+            "subscription_id": subscription["id"]
         }
 
-    except stripe.error.StripeError as e:
+    except razorpay.errors.BadRequestError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error changing plan: {str(e)}"
         )
 
 
@@ -439,29 +540,37 @@ async def cancel_subscription(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Cancel user's subscription."""
-    if not current_user.stripe_subscription_id:
+    """Cancel user's subscription at end of billing cycle."""
+    if not current_user.razorpay_subscription_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No active subscription found"
         )
 
     try:
-        stripe.Subscription.delete(current_user.stripe_subscription_id)
+        # Cancel subscription at end of cycle
+        razorpay_client.subscription.cancel(
+            current_user.razorpay_subscription_id,
+            data={"cancel_at_cycle_end": 1}
+        )
 
-        # Update user
-        current_user.subscription_tier = SubscriptionTier.FREE
-        current_user.stripe_subscription_id = None
-        current_user.subscription_expires_at = None
-        current_user.monthly_hours_limit = None
-        current_user.monthly_hours_used = 0.0
+        # Note: Subscription remains active until expiry
+        # Webhook will handle final cleanup when subscription.cancelled event fires
 
         await db.commit()
 
-        return {"message": "Subscription canceled successfully"}
+        return {
+            "message": "Subscription will be canceled at end of billing cycle",
+            "expires_at": current_user.subscription_expires_at.isoformat() if current_user.subscription_expires_at else None
+        }
 
-    except stripe.error.StripeError as e:
+    except razorpay.errors.BadRequestError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error canceling subscription: {str(e)}"
         )

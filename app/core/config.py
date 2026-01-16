@@ -27,10 +27,10 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "your-secret-key-change-this-in-production"  # Change in .env for production
 
-    # Stripe
-    STRIPE_SECRET_KEY: str = ""
-    STRIPE_PUBLISHABLE_KEY: str = ""
-    STRIPE_WEBHOOK_SECRET: str = ""
+    # Razorpay Payment Gateway
+    RAZORPAY_KEY_ID: str = ""  # API Key ID (public key)
+    RAZORPAY_KEY_SECRET: str = ""  # API Key Secret (private key)
+    RAZORPAY_WEBHOOK_SECRET: str = ""  # Webhook signature secret
 
     # Email Service Configuration
     EMAIL_SERVICE: str = "sendgrid"  # 'sendgrid' or 'ses'

@@ -44,8 +44,41 @@ const SubscriptionPage = () => {
       // Map frontend interval values to backend expected values
       const backendInterval = billingInterval === 'monthly' ? 'month' : 'year';
       const response = await apiService.createCheckoutSession(plan.toLowerCase(), backendInterval);
-      // Redirect to Stripe checkout
-      window.location.href = response.data.url;
+
+      // Razorpay returns subscription_id and key_id
+      const { subscription_id, key_id } = response.data;
+
+      // Initialize Razorpay Checkout modal
+      const options = {
+        key: key_id,
+        subscription_id: subscription_id,
+        name: "Take My Dictation",
+        description: `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan - ${billingInterval === 'monthly' ? 'Monthly' : 'Annual'} Subscription`,
+        handler: function (response) {
+          // Payment successful
+          console.log('Payment successful:', response);
+          // Redirect to success page
+          navigate('/subscribe?success=true');
+        },
+        prefill: {
+          name: user.full_name || '',
+          email: user.email || '',
+        },
+        theme: {
+          color: "#4F46E5"  // Primary color
+        },
+        modal: {
+          ondismiss: function() {
+            setLoading(null);
+            setError('Payment was canceled. Please try again.');
+          }
+        }
+      };
+
+      // Open Razorpay modal
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
+
     } catch (err) {
       console.error('Subscription error:', err);
       setError(err.response?.data?.detail || 'Failed to create checkout session. Please try again.');
@@ -55,22 +88,22 @@ const SubscriptionPage = () => {
 
   const getPrice = (plan) => {
     const prices = {
-      basic: { monthly: 9.99, annual: 99 },
-      pro: { monthly: 19.99, annual: 199 }
+      basic: { monthly: 999, annual: 9999 },
+      pro: { monthly: 1999, annual: 19999 }
     };
     return prices[plan][billingInterval];
   };
 
   const getAnnualSavings = (plan) => {
     const prices = {
-      basic: { monthly: 9.99, annual: 99 },
-      pro: { monthly: 19.99, annual: 199 }
+      basic: { monthly: 999, annual: 9999 },
+      pro: { monthly: 1999, annual: 19999 }
     };
     const monthlyTotal = prices[plan].monthly * 12;
     const annualPrice = prices[plan].annual;
     const savings = monthlyTotal - annualPrice;
     const savingsPercent = Math.round((savings / monthlyTotal) * 100);
-    return { amount: savings.toFixed(2), percent: savingsPercent };
+    return { amount: savings.toFixed(0), percent: savingsPercent };
   };
 
   return (
@@ -137,11 +170,11 @@ const SubscriptionPage = () => {
               <h3 className="text-2xl font-bold text-gray-800 mb-4">Basic</h3>
               <div className="mb-6">
                 <div className="text-5xl font-bold text-gray-900">
-                  ${getPrice('basic')}<span className="text-lg text-gray-500">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span>
+                  ₹{getPrice('basic')}<span className="text-lg text-gray-500">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span>
                 </div>
                 {billingInterval === 'annual' && (
                   <p className="text-sm text-green-600 font-semibold mt-2">
-                    Save ${getAnnualSavings('basic').amount} per year
+                    Save ₹{getAnnualSavings('basic').amount} per year
                   </p>
                 )}
               </div>
@@ -188,11 +221,11 @@ const SubscriptionPage = () => {
               <h3 className="text-2xl font-bold text-white mb-4 mt-2">Pro</h3>
               <div className="mb-6">
                 <div className="text-5xl font-bold text-white">
-                  ${getPrice('pro')}<span className="text-lg text-gray-200">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span>
+                  ₹{getPrice('pro')}<span className="text-lg text-gray-200">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span>
                 </div>
                 {billingInterval === 'annual' && (
                   <p className="text-sm text-yellow-300 font-semibold mt-2">
-                    Save ${getAnnualSavings('pro').amount} per year
+                    Save ₹{getAnnualSavings('pro').amount} per year
                   </p>
                 )}
               </div>
