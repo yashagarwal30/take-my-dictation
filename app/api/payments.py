@@ -278,6 +278,7 @@ async def handle_subscription_activated(subscription: Dict, db: AsyncSession):
     customer_id = subscription.get("customer_id")
 
     if not customer_id:
+        print(f"[WEBHOOK ERROR] Missing customer_id in subscription: {subscription.get('id')}")
         raise ValueError("Missing customer_id in subscription")
 
     result = await db.execute(
@@ -285,45 +286,54 @@ async def handle_subscription_activated(subscription: Dict, db: AsyncSession):
     )
     user = result.scalar_one_or_none()
 
-    if user:
-        # Extract plan details from subscription
-        plan_id = subscription.get("plan_id")
-        notes = subscription.get("notes", {})
-        plan = notes.get("plan", "").lower()
-        interval = notes.get("interval", "month")
+    if not user:
+        print(f"[WEBHOOK ERROR] User not found for customer_id: {customer_id}")
+        return
 
-        # Validate plan
-        if plan not in PRICING_PLANS:
-            raise ValueError(f"Invalid plan in subscription notes: {plan}")
+    print(f"[WEBHOOK] Activating subscription for user {user.email} (customer_id: {customer_id})")
 
-        plan_config = PRICING_PLANS[plan]
+    # Extract plan details from subscription
+    plan_id = subscription.get("plan_id")
+    notes = subscription.get("notes", {})
+    plan = notes.get("plan", "").lower()
+    interval = notes.get("interval", "month")
 
-        # Update user subscription
-        if plan == "basic":
-            user.subscription_tier = SubscriptionTier.BASIC
-            user.monthly_hours_limit = 10.0
-        elif plan == "pro":
-            user.subscription_tier = SubscriptionTier.PRO
-            user.monthly_hours_limit = 50.0
+    # Validate plan
+    if plan not in PRICING_PLANS:
+        print(f"[WEBHOOK ERROR] Invalid plan: {plan}")
+        raise ValueError(f"Invalid plan in subscription notes: {plan}")
 
-        # Set subscription details
-        user.razorpay_subscription_id = subscription["id"]
-        user.razorpay_plan_id = plan_id
+    plan_config = PRICING_PLANS[plan]
 
-        # Set subscription anniversary date (day of month for reset)
-        today = date.today()
-        user.subscription_anniversary_date = today
+    # Update user subscription
+    if plan == "basic":
+        user.subscription_tier = SubscriptionTier.BASIC
+        user.monthly_hours_limit = 10.0
+    elif plan == "pro":
+        user.subscription_tier = SubscriptionTier.PRO
+        user.monthly_hours_limit = 50.0
 
-        # Razorpay provides current_start and current_end timestamps
-        current_end = subscription.get("current_end")
-        if current_end:
-            user.subscription_expires_at = datetime.fromtimestamp(current_end)
-            user.usage_reset_at = datetime.fromtimestamp(current_end)
+    # Set subscription details
+    user.razorpay_subscription_id = subscription["id"]
+    user.razorpay_plan_id = plan_id
 
-        # Reset usage for new subscription
-        user.monthly_hours_used = 0.0
+    # Set subscription anniversary date (day of month for reset)
+    today = date.today()
+    user.subscription_anniversary_date = today
 
-        await db.commit()
+    # Razorpay provides current_start and current_end timestamps
+    current_end = subscription.get("current_end")
+    if current_end:
+        user.subscription_expires_at = datetime.fromtimestamp(current_end)
+        user.usage_reset_at = datetime.fromtimestamp(current_end)
+
+    # Reset usage for new subscription
+    user.monthly_hours_used = 0.0
+
+    await db.commit()
+    await db.refresh(user)
+
+    print(f"[WEBHOOK SUCCESS] Subscription activated: user={user.email}, tier={user.subscription_tier.value}, hours={user.monthly_hours_limit}")
 
 
 async def handle_subscription_charged(subscription: Dict, db: AsyncSession):
@@ -532,6 +542,109 @@ async def change_plan(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error changing plan: {str(e)}"
+        )
+
+
+@router.post("/verify-subscription")
+async def verify_and_activate_subscription(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Manually verify subscription status with Razorpay and activate if payment successful.
+    This is a fallback for when webhooks are delayed or fail.
+    """
+    if not current_user.razorpay_subscription_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No subscription ID found. Please create a subscription first."
+        )
+
+    try:
+        # Fetch subscription details from Razorpay
+        subscription = razorpay_client.subscription.fetch(current_user.razorpay_subscription_id)
+
+        print(f"[MANUAL VERIFY] Fetched subscription for {current_user.email}: status={subscription.get('status')}")
+
+        # Check if subscription is active and paid
+        if subscription.get("status") == "active":
+            # Extract plan details
+            notes = subscription.get("notes", {})
+            plan = notes.get("plan", "").lower()
+            plan_id = subscription.get("plan_id")
+
+            # Only activate if not already activated
+            if current_user.subscription_tier == SubscriptionTier.FREE or not current_user.monthly_hours_limit:
+                print(f"[MANUAL VERIFY] Activating subscription for {current_user.email}")
+
+                # Validate plan
+                if plan not in PRICING_PLANS:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Invalid plan configuration: {plan}"
+                    )
+
+                # Update user subscription
+                if plan == "basic":
+                    current_user.subscription_tier = SubscriptionTier.BASIC
+                    current_user.monthly_hours_limit = 10.0
+                elif plan == "pro":
+                    current_user.subscription_tier = SubscriptionTier.PRO
+                    current_user.monthly_hours_limit = 50.0
+
+                # Set subscription details
+                current_user.razorpay_plan_id = plan_id
+
+                # Set subscription anniversary date
+                today = date.today()
+                current_user.subscription_anniversary_date = today
+
+                # Set expiration
+                current_end = subscription.get("current_end")
+                if current_end:
+                    current_user.subscription_expires_at = datetime.fromtimestamp(current_end)
+                    current_user.usage_reset_at = datetime.fromtimestamp(current_end)
+
+                # Reset usage for new subscription
+                current_user.monthly_hours_used = 0.0
+
+                await db.commit()
+                await db.refresh(current_user)
+
+                print(f"[MANUAL VERIFY SUCCESS] Subscription activated: user={current_user.email}, tier={current_user.subscription_tier.value}")
+
+                return {
+                    "success": True,
+                    "message": "Subscription activated successfully",
+                    "subscription_tier": current_user.subscription_tier.value,
+                    "monthly_hours_limit": current_user.monthly_hours_limit
+                }
+            else:
+                # Already activated
+                return {
+                    "success": True,
+                    "message": "Subscription already active",
+                    "subscription_tier": current_user.subscription_tier.value,
+                    "monthly_hours_limit": current_user.monthly_hours_limit
+                }
+        else:
+            # Subscription not active yet
+            return {
+                "success": False,
+                "message": f"Subscription status: {subscription.get('status')}. Payment may still be processing.",
+                "status": subscription.get("status")
+            }
+
+    except razorpay.errors.BadRequestError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        print(f"[MANUAL VERIFY ERROR] {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error verifying subscription: {str(e)}"
         )
 
 

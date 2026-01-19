@@ -16,6 +16,7 @@ const SubscriptionPage = () => {
   const [success, setSuccess] = useState(false);
   const [billingInterval, setBillingInterval] = useState('monthly'); // 'monthly' or 'annual'
   const [redirectMessage, setRedirectMessage] = useState(null);
+  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
     // Check for successful payment
@@ -30,6 +31,75 @@ const SubscriptionPage = () => {
       setRedirectMessage(location.state.message);
     }
   }, [searchParams, location]);
+
+  // Verification function to poll backend for subscription activation
+  const verifySubscriptionActivation = async (maxAttempts = 20) => {
+    // First, try webhook-based verification (poll user data)
+    for (let i = 0; i < Math.floor(maxAttempts * 0.6); i++) {
+      try {
+        const response = await apiService.getCurrentUser();
+        const userData = response.data;
+
+        console.log(`Verification attempt ${i + 1}:`, {
+          subscription_tier: userData.subscription_tier,
+          monthly_hours_limit: userData.monthly_hours_limit,
+          razorpay_subscription_id: userData.razorpay_subscription_id
+        });
+
+        // Check if subscription was activated - check for monthly_hours_limit or subscription_tier change
+        if (userData.monthly_hours_limit && userData.monthly_hours_limit > 0) {
+          console.log('Subscription verified successfully via webhook!');
+          return { success: true, user: userData };
+        }
+
+        // Wait 2 seconds before next attempt
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (err) {
+        console.error('Error verifying subscription:', err);
+      }
+    }
+
+    console.log('Webhook verification timed out, trying manual verification...');
+
+    // If webhook hasn't arrived yet, try manual verification with Razorpay
+    try {
+      const verifyResponse = await apiService.verifySubscription();
+      const verifyData = verifyResponse.data;
+
+      console.log('Manual verification result:', verifyData);
+
+      if (verifyData.success) {
+        // Fetch updated user data
+        const userResponse = await apiService.getCurrentUser();
+        return { success: true, user: userResponse.data };
+      } else {
+        // Payment still processing
+        console.log('Payment still processing:', verifyData.message);
+      }
+    } catch (err) {
+      console.error('Error during manual verification:', err);
+    }
+
+    // Continue polling for a bit longer after manual verification
+    for (let i = 0; i < Math.floor(maxAttempts * 0.4); i++) {
+      try {
+        const response = await apiService.getCurrentUser();
+        const userData = response.data;
+
+        if (userData.monthly_hours_limit && userData.monthly_hours_limit > 0) {
+          console.log('Subscription verified successfully after manual check!');
+          return { success: true, user: userData };
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (err) {
+        console.error('Error verifying subscription:', err);
+      }
+    }
+
+    console.log('Verification timed out after all attempts');
+    return { success: false };
+  };
 
   const handleSubscribe = async (plan) => {
     if (!user) {
@@ -54,11 +124,67 @@ const SubscriptionPage = () => {
         subscription_id: subscription_id,
         name: "Take My Dictation",
         description: `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan - ${billingInterval === 'monthly' ? 'Monthly' : 'Annual'} Subscription`,
-        handler: function (response) {
+        handler: async function (response) {
           // Payment successful
           console.log('Payment successful:', response);
-          // Redirect to success page
-          navigate('/subscribe?success=true');
+
+          // Show verifying state
+          setVerifying(true);
+          setLoading(null);
+
+          // Poll backend to verify subscription activation
+          const result = await verifySubscriptionActivation();
+
+          if (result.success) {
+            // Clear trial mode from localStorage
+            localStorage.removeItem('isTrial');
+
+            // Dispatch event to notify components about subscription update
+            window.dispatchEvent(new Event('subscriptionUpdated'));
+
+            // Redirect to dashboard with success message
+            navigate('/dashboard', {
+              state: {
+                successMessage: `Subscription activated! Welcome to ${result.user.subscription_tier} plan.`
+              }
+            });
+          } else {
+            // Timeout - payment received but activation taking longer
+            setVerifying(false);
+            setError(
+              <div>
+                <p className="font-semibold mb-2">Your payment was received but subscription activation is taking longer than expected.</p>
+                <p className="mb-2">This usually happens when webhooks are delayed. Please try:</p>
+                <ol className="list-decimal list-inside mb-3">
+                  <li>Wait a moment and click the "Retry Verification" button below</li>
+                  <li>Refresh the page and check your dashboard</li>
+                  <li>If the issue persists after 5 minutes, contact support</li>
+                </ol>
+                <button
+                  onClick={async () => {
+                    setError(null);
+                    setVerifying(true);
+                    const result = await verifySubscriptionActivation();
+                    if (result.success) {
+                      navigate('/dashboard', {
+                        state: {
+                          successMessage: `Subscription activated! Welcome to ${result.user.subscription_tier} plan.`
+                        }
+                      });
+                    } else {
+                      setVerifying(false);
+                      setError('Still unable to verify. Please wait a few minutes and refresh the page, or contact support.');
+                    }
+                  }}
+                  className="bg-primary hover:bg-primary-dark text-white font-semibold py-2 px-4 rounded-lg transition duration-200"
+                >
+                  Retry Verification
+                </button>
+              </div>
+            );
+
+            // Don't auto-redirect, let user retry manually
+          }
         },
         prefill: {
           name: user.full_name || '',
@@ -70,6 +196,7 @@ const SubscriptionPage = () => {
         modal: {
           ondismiss: function() {
             setLoading(null);
+            setVerifying(false);
             setError('Payment was canceled. Please try again.');
           }
         }
@@ -149,6 +276,13 @@ const SubscriptionPage = () => {
           {redirectMessage && (
             <div className="mb-6 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded">
               {redirectMessage}
+            </div>
+          )}
+
+          {verifying && (
+            <div className="mb-6 bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded flex items-center">
+              <div className="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-blue-700 mr-3"></div>
+              <span>Processing payment and activating subscription... Please wait.</span>
             </div>
           )}
 

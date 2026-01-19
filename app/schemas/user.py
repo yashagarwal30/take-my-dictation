@@ -30,7 +30,10 @@ class UserResponse(UserBase):
     is_active: bool
     is_verified: bool
     subscription_tier: SubscriptionTier
+    monthly_hours_limit: Optional[float] = None
+    monthly_hours_used: Optional[float] = None
     subscription_expires_at: Optional[datetime] = None
+    razorpay_subscription_id: Optional[str] = None
     created_at: datetime
     last_login_at: Optional[datetime] = None
 

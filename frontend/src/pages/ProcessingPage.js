@@ -22,6 +22,9 @@ const ProcessingPage = () => {
       // Wait a bit for transcription to complete
       await new Promise(resolve => setTimeout(resolve, 1000));
 
+      // Dispatch event to update navbar usage
+      window.dispatchEvent(new Event('usageUpdated'));
+
       // Navigate to summary page (user will choose summary format there)
       setStatus('Transcription complete! Redirecting...');
       setTimeout(() => {

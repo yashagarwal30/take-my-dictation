@@ -1,22 +1,68 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { apiService } from '../utils/api';
 import { FaFileAlt, FaTrash, FaClock, FaCheckCircle } from 'react-icons/fa';
+import { formatHoursMinutes } from '../utils/formatTime';
 
 const DashboardPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [recordings, setRecordings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [usageInfo, setUsageInfo] = useState(null);
   const [isTrial, setIsTrial] = useState(false);
+  const [successMessage, setSuccessMessage] = useState(null);
+  const [warningMessage, setWarningMessage] = useState(null);
+  const [verifyingSubscription, setVerifyingSubscription] = useState(false);
 
   useEffect(() => {
     fetchRecordings();
     fetchUsageInfo();
-  }, []);
+
+    // Listen for usage updates to refresh recordings list
+    const handleUsageUpdate = () => {
+      fetchRecordings();
+      fetchUsageInfo();
+    };
+
+    window.addEventListener('usageUpdated', handleUsageUpdate);
+
+    // Check for success or warning message from payment redirect
+    if (location.state?.successMessage) {
+      setSuccessMessage(location.state.successMessage);
+      // Clear trial mode if subscription was activated
+      localStorage.removeItem('isTrial');
+      // Dispatch custom event to notify Navbar to refresh
+      window.dispatchEvent(new Event('subscriptionUpdated'));
+      // Force refresh usage info after payment success
+      setTimeout(() => {
+        fetchUsageInfo();
+      }, 1000);
+      // Auto-dismiss after 5 seconds
+      setTimeout(() => setSuccessMessage(null), 5000);
+      // Clear the state to prevent showing again on refresh
+      window.history.replaceState({}, document.title);
+    }
+
+    if (location.state?.warningMessage) {
+      setWarningMessage(location.state.warningMessage);
+      // Also refresh usage info for warning case
+      setTimeout(() => {
+        fetchUsageInfo();
+      }, 1000);
+      // Auto-dismiss after 8 seconds
+      setTimeout(() => setWarningMessage(null), 8000);
+      // Clear the state
+      window.history.replaceState({}, document.title);
+    }
+
+    return () => {
+      window.removeEventListener('usageUpdated', handleUsageUpdate);
+    };
+  }, [location]);
 
   const fetchUsageInfo = async () => {
     try {
@@ -39,7 +85,7 @@ const DashboardPage = () => {
     try {
       setLoading(true);
       const response = await apiService.listRecordings(1, 20);
-      setRecordings(response.data.items || []);
+      setRecordings(response.data.recordings || []);
       setLoading(false);
     } catch (err) {
       console.error('Error fetching recordings:', err);
@@ -87,6 +133,33 @@ const DashboardPage = () => {
     }
   };
 
+  const handleVerifySubscription = async () => {
+    setVerifyingSubscription(true);
+    setError(null);
+
+    try {
+      const response = await apiService.verifySubscription();
+      const data = response.data;
+
+      if (data.success) {
+        setSuccessMessage(`Subscription activated! You now have ${data.monthly_hours_limit} hours per month on the ${data.subscription_tier.toUpperCase()} plan.`);
+        // Refresh usage info
+        await fetchUsageInfo();
+        // Dispatch event to update navbar
+        window.dispatchEvent(new Event('subscriptionUpdated'));
+        setTimeout(() => setSuccessMessage(null), 5000);
+      } else {
+        setWarningMessage(data.message || 'Subscription not yet active. Please wait a few minutes.');
+        setTimeout(() => setWarningMessage(null), 8000);
+      }
+    } catch (err) {
+      console.error('Error verifying subscription:', err);
+      setError(err.response?.data?.detail || 'Failed to verify subscription. Please try again later.');
+    } finally {
+      setVerifyingSubscription(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col min-h-screen">
@@ -108,6 +181,22 @@ const DashboardPage = () => {
 
       <main className="flex-1 bg-gray-50 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Success Message Banner */}
+          {successMessage && (
+            <div className="mb-6 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded flex items-center">
+              <FaCheckCircle className="text-green-500 mr-3 text-xl" />
+              <span className="font-semibold">{successMessage}</span>
+            </div>
+          )}
+
+          {/* Warning Message Banner */}
+          {warningMessage && (
+            <div className="mb-6 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded flex items-center">
+              <FaClock className="text-yellow-600 mr-3 text-xl" />
+              <span className="font-semibold">{warningMessage}</span>
+            </div>
+          )}
+
           <div className="flex justify-between items-center mb-8">
             <h1 className="text-4xl font-bold text-gray-800">My Dashboard</h1>
             {canRecord() ? (
@@ -131,7 +220,7 @@ const DashboardPage = () => {
           {usageInfo && (
             <div className="mb-6 bg-white rounded-lg shadow-lg p-6">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex-1">
                   <h2 className="text-xl font-bold text-gray-800 mb-2">
                     {isTrial ? 'Free Trial' : `${usageInfo.subscription_tier?.toUpperCase() || 'FREE'} Plan`}
                   </h2>
@@ -149,7 +238,7 @@ const DashboardPage = () => {
                       <div className="flex items-center space-x-2 text-gray-600">
                         <FaCheckCircle className="text-green-500" />
                         <span>
-                          {usageInfo.monthly_hours_remaining?.toFixed(1)} of {usageInfo.monthly_hours_limit} hours remaining this month
+                          {formatHoursMinutes(usageInfo.monthly_hours_remaining)} of {usageInfo.monthly_hours_limit} hours remaining this month
                         </span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2">
@@ -167,14 +256,25 @@ const DashboardPage = () => {
                     </div>
                   )}
                 </div>
-                {!isTrial && usageInfo.monthly_hours_limit <= 0 && (
-                  <button
-                    onClick={() => navigate('/subscribe')}
-                    className="bg-primary hover:bg-primary-dark text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
-                  >
-                    View Plans
-                  </button>
-                )}
+                <div className="flex flex-col gap-2">
+                  {!isTrial && usageInfo.monthly_hours_limit <= 0 && (
+                    <>
+                      <button
+                        onClick={() => navigate('/subscribe')}
+                        className="bg-primary hover:bg-primary-dark text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
+                      >
+                        View Plans
+                      </button>
+                      <button
+                        onClick={handleVerifySubscription}
+                        disabled={verifyingSubscription}
+                        className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg transition duration-200 disabled:opacity-50 text-sm"
+                      >
+                        {verifyingSubscription ? 'Verifying...' : 'Verify Payment'}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           )}

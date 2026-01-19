@@ -76,6 +76,7 @@ export const apiService = {
   createCheckoutSession: (plan, interval = 'monthly') => api.post('/payments/create-checkout-session', null, {
     params: { plan, interval }
   }),
+  verifySubscription: () => api.post('/payments/verify-subscription'),
   cancelSubscription: () => api.post('/payments/cancel-subscription'),
   changePlan: (newPlan) => api.post('/payments/change-plan', { new_plan: newPlan }),
 

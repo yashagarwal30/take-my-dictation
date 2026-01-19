@@ -35,7 +35,7 @@ class User(Base):
     trial_minutes_used = Column(Float, default=0.0, nullable=False)  # Minutes used in trial
 
     # Subscription details
-    subscription_tier = Column(Enum(SubscriptionTier), default=SubscriptionTier.FREE, nullable=False)
+    subscription_tier = Column(Enum(SubscriptionTier, values_callable=lambda x: [e.value for e in x]), default=SubscriptionTier.FREE, nullable=False)
     razorpay_customer_id = Column(String, nullable=True, unique=True)
     razorpay_subscription_id = Column(String, nullable=True)
     razorpay_plan_id = Column(String, nullable=True)  # Razorpay plan ID for active subscription
