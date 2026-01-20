@@ -11,7 +11,8 @@ from app.models.user import User
 from app.models.email_verification import EmailVerification
 from app.schemas.user import (
     UserCreate, UserLogin, UserResponse, Token,
-    SendVerificationCode, VerifyEmailCode, VerificationResponse
+    SendVerificationCode, VerifyEmailCode, VerificationResponse,
+    ChangePasswordRequest, ChangePasswordResponse
 )
 from app.core.security import (
     verify_password,
@@ -412,6 +413,64 @@ async def resend_verification_code(
 
     # Reuse the send verification logic
     return await send_verification_code(data, request, db)
+
+
+@router.post("/change-password", response_model=ChangePasswordResponse)
+async def change_password(
+    password_data: ChangePasswordRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Change user password with current password verification.
+    Requires authentication.
+    """
+    # Rate limiting by user ID
+    user_id = current_user.id
+    if not check_rate_limit(f"change_password:user:{user_id}", max_attempts=3, window_minutes=60):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many password change attempts. Please try again in 60 minutes."
+        )
+
+    # Verify current password
+    if not verify_password(password_data.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect"
+        )
+
+    # Validate new password strength
+    is_valid, error_msg = validate_password_strength(password_data.new_password)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg
+        )
+
+    # Check if new password is same as current password
+    if verify_password(password_data.new_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from current password"
+        )
+
+    try:
+        # Update password
+        current_user.hashed_password = get_password_hash(password_data.new_password)
+        await db.commit()
+
+        return ChangePasswordResponse(
+            success=True,
+            message="Password changed successfully"
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to change password. Please try again."
+        )
 
 
 @router.post("/convert-trial", response_model=Token, status_code=status.HTTP_201_CREATED)

@@ -70,3 +70,31 @@ class VerificationResponse(BaseModel):
     success: bool
     message: str
     expires_in_seconds: Optional[int] = None
+
+
+class ChangePasswordRequest(BaseModel):
+    """Schema for changing password."""
+    current_password: str
+    new_password: str = Field(..., min_length=8, description="New password must be at least 8 characters")
+
+
+class ChangePasswordResponse(BaseModel):
+    """Schema for password change response."""
+    success: bool
+    message: str
+
+
+class SubscriptionDetailsResponse(BaseModel):
+    """Schema for subscription details response."""
+    subscription_tier: SubscriptionTier
+    is_trial_user: bool
+    monthly_hours_limit: Optional[float] = None
+    monthly_hours_used: Optional[float] = None
+    subscription_expires_at: Optional[datetime] = None
+    subscription_anniversary_date: Optional[int] = None
+    razorpay_subscription_id: Optional[str] = None
+    razorpay_plan_id: Optional[str] = None
+    status: str  # "active", "trial", "expired", "cancelled"
+
+    class Config:
+        from_attributes = True

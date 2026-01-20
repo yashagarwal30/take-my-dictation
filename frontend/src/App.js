@@ -11,6 +11,8 @@ import ProcessingPage from './pages/ProcessingPage';
 import SummaryPage from './pages/SummaryPage';
 import SubscriptionPage from './pages/SubscriptionPage';
 import DashboardPage from './pages/DashboardPage';
+import ProfilePage from './pages/ProfilePage';
+import SubscriptionManagementPage from './pages/SubscriptionManagementPage';
 
 function App() {
   return (
@@ -33,6 +35,22 @@ function App() {
               element={
                 <ProtectedRoute>
                   <DashboardPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <ProfilePage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/subscription/manage"
+              element={
+                <ProtectedRoute>
+                  <SubscriptionManagementPage />
                 </ProtectedRoute>
               }
             />

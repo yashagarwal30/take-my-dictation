@@ -1,12 +1,13 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { UserContext } from '../context/UserContext';
-import { FaMicrophone, FaUser, FaSignOutAlt, FaClock } from 'react-icons/fa';
+import { FaMicrophone, FaClock } from 'react-icons/fa';
 import { apiService } from '../utils/api';
 import { formatHoursMinutes } from '../utils/formatTime';
+import UserDropdown from './UserDropdown';
 
 const Navbar = () => {
-  const { user, logout } = useContext(UserContext);
+  const { user } = useContext(UserContext);
   const navigate = useNavigate();
   const [usageInfo, setUsageInfo] = useState(null);
   const [isTrial, setIsTrial] = useState(false);
@@ -58,11 +59,6 @@ const Navbar = () => {
       window.removeEventListener('usageUpdated', handleUsageUpdate);
     };
   }, [user]);
-
-  const handleLogout = () => {
-    logout();
-    navigate('/');
-  };
 
   // Helper functions for color coding based on usage percentage
   const getBackgroundColor = () => {
@@ -129,22 +125,7 @@ const Navbar = () => {
             {/* Navigation Links */}
             <div className="flex items-center space-x-4">
               {user ? (
-                <>
-                  <Link
-                    to="/dashboard"
-                    className="flex items-center space-x-1 text-gray-700 hover:text-primary transition"
-                  >
-                    <FaUser />
-                    <span>Dashboard</span>
-                  </Link>
-                  <button
-                    onClick={handleLogout}
-                    className="flex items-center space-x-1 text-gray-700 hover:text-red-600 transition"
-                  >
-                    <FaSignOutAlt />
-                    <span>Logout</span>
-                  </button>
-                </>
+                <UserDropdown />
               ) : (
                 <>
                   <Link

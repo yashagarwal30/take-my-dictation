@@ -14,6 +14,7 @@ from app.db.database import get_db
 from app.models.user import User, SubscriptionTier
 from app.core.config import settings
 from app.core.dependencies import get_current_user
+from app.schemas.user import SubscriptionDetailsResponse
 
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
@@ -646,6 +647,41 @@ async def verify_and_activate_subscription(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error verifying subscription: {str(e)}"
         )
+
+
+@router.get("/subscription/details", response_model=SubscriptionDetailsResponse)
+async def get_subscription_details(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get comprehensive subscription details for the current user.
+    Includes subscription tier, usage, limits, expiration, and billing info.
+    """
+    # Determine subscription status
+    status_value = "trial" if current_user.is_trial_user else "active"
+
+    if not current_user.is_trial_user and current_user.subscription_tier == SubscriptionTier.FREE:
+        status_value = "expired"
+
+    if current_user.subscription_expires_at and current_user.subscription_expires_at < datetime.utcnow():
+        status_value = "expired"
+
+    # Extract anniversary day from date object if available
+    anniversary_day = None
+    if current_user.subscription_anniversary_date:
+        anniversary_day = current_user.subscription_anniversary_date.day if isinstance(current_user.subscription_anniversary_date, date) else current_user.subscription_anniversary_date
+
+    return SubscriptionDetailsResponse(
+        subscription_tier=current_user.subscription_tier,
+        is_trial_user=current_user.is_trial_user,
+        monthly_hours_limit=current_user.monthly_hours_limit,
+        monthly_hours_used=current_user.monthly_hours_used,
+        subscription_expires_at=current_user.subscription_expires_at,
+        subscription_anniversary_date=anniversary_day,
+        razorpay_subscription_id=current_user.razorpay_subscription_id,
+        razorpay_plan_id=current_user.razorpay_plan_id,
+        status=status_value
+    )
 
 
 @router.post("/cancel-subscription")

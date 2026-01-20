@@ -24,6 +24,10 @@ export const apiService = {
   register: (userData) => api.post('/auth/register', userData),
   login: (credentials) => api.post('/auth/login', credentials),
   getCurrentUser: () => api.get('/auth/me'),
+  changePassword: (currentPassword, newPassword) => api.post('/auth/change-password', {
+    current_password: currentPassword,
+    new_password: newPassword
+  }),
   sendVerificationCode: (email) => api.post('/auth/send-verification', { email }),
   verifyEmail: (email, code) => api.post('/auth/verify-email', { email, code }),
   resendVerificationCode: (email) => api.post('/auth/resend-verification', { email }),
@@ -73,6 +77,7 @@ export const apiService = {
 
   // Payment endpoints
   getPricingPlans: () => api.get('/payments/plans'),
+  getSubscriptionDetails: () => api.get('/payments/subscription/details'),
   createCheckoutSession: (plan, interval = 'monthly') => api.post('/payments/create-checkout-session', null, {
     params: { plan, interval }
   }),
